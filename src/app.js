@@ -1,7 +1,7 @@
-
+if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
   require("dotenv").config({ path: ".env.local", override: true });
-
+}
 
 const express = require("express");
 const helmet = require("helmet");
@@ -9,7 +9,7 @@ const cors = require("cors");
 const morgan = require("morgan");
 const connectDB = require("./config/db");
 
-// routes (ของคุณ)
+// routes
 const authRoutes = require("./routes/auth.routes");
 const publicRoutes = require("./routes/public.routes");
 const userRoutes = require("./routes/user.routes");
@@ -18,14 +18,24 @@ const lineRoutes = require("./routes/line.routes");
 const app = express();
 
 // ===============================
-// 🔧 CORE MIDDLEWARE
+// 🔧 CORE
 // ===============================
 app.use(helmet());
 
+// ===============================
+// 🔥 LINE WEBHOOK ต้องมาก่อน json
+// ===============================
+app.use("/api/line", lineRoutes);
+
+// ===============================
+// 📦 BODY PARSER (หลัง LINE)
+// ===============================
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS สำหรับ frontend
+// ===============================
+// 🌐 CORS
+// ===============================
 const allowedOrigins = [
   "http://localhost:3000",
   "https://carevigo-frontend.onrender.com",
@@ -44,15 +54,11 @@ app.use(
   })
 );
 
-// 🔥 สำคัญ: เปิด CORS ให้ LINE webhook (ไม่ติด origin)
-app.use("/api/line", cors({ origin: true }));
-
-app.use(
-  morgan(process.env.NODE_ENV === "production" ? "combined" : "dev")
-);
+// ===============================
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ===============================
-// 🧪 HEALTH CHECK
+// 🧪 HEALTH
 // ===============================
 app.get("/api/health", (req, res) => {
   res.json({
@@ -68,10 +74,9 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/line", lineRoutes);
 
 // ===============================
-// ❌ 404 HANDLER
+// ❌ 404
 // ===============================
 app.use((req, res) => {
   res.status(404).json({
@@ -82,32 +87,27 @@ app.use((req, res) => {
 });
 
 // ===============================
-// ⚠️ GLOBAL ERROR HANDLER
+// ⚠️ ERROR
 // ===============================
 app.use((err, req, res, next) => {
   console.error("❌ ERROR:", err);
-
-  res.status(err.statusCode || 500).json({
-    statusCode: err.statusCode || 500,
-    title: "Error",
-    message: err.message || "Internal Server Error",
+  res.status(500).json({
+    statusCode: 500,
+    message: err.message,
   });
 });
 
 // ===============================
-// 🚀 START SERVER
+// 🚀 START
 // ===============================
 const startServer = async () => {
   try {
     await connectDB();
-
-    const PORT = process.env.PORT || 3000;
-
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
+    app.listen(process.env.PORT || 3000, () =>
+      console.log("🚀 Server running")
+    );
   } catch (err) {
-    console.error("❌ Failed to start server:", err.message);
+    console.error(err);
     process.exit(1);
   }
 };

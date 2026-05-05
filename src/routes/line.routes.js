@@ -5,7 +5,7 @@ const handleEvent = require("../handlers/line.handler");
 const router = express.Router();
 
 // ===============================
-// 🔐 LINE CONFIG
+// 🔐 CONFIG
 // ===============================
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -13,45 +13,34 @@ const config = {
 };
 
 // ===============================
-// 🚀 LINE CLIENT (v11)
+// 🚀 CLIENT (v11)
 // ===============================
 const client = new line.messagingApi.MessagingApiClient({
   channelAccessToken: config.channelAccessToken,
 });
 
 // ===============================
-// 🧪 HEALTH CHECK (optional)
+// 🧪 GET (debug)
 // ===============================
 router.get("/webhook", (req, res) => {
   res.status(200).send("LINE webhook ready ✅");
 });
 
 // ===============================
-// 🔥 WEBHOOK (สำคัญ)
+// 🔥 POST WEBHOOK
 // ===============================
 router.post(
   "/webhook",
 
-  // 🔧 DEV: bypass signature (กัน error no signature)
-  (req, res, next) => {
-    if (process.env.NODE_ENV !== "production") {
-      return next();
-    }
-    return line.middleware(config)(req, res, next);
-  },
+  // 🔥 สำคัญ: ใช้ middleware ของ LINE ตรง ๆ
+  line.middleware(config),
 
   async (req, res) => {
     try {
-      console.log("🔥 LINE WEBHOOK HIT");
-      console.log("BODY:", JSON.stringify(req.body, null, 2));
+      console.log("🔥 WEBHOOK HIT");
 
       const events = req.body.events || [];
 
-      if (!events.length) {
-        return res.status(200).json({ ok: true });
-      }
-
-      // process events
       await Promise.all(
         events.map(async (event) => {
           try {
@@ -62,13 +51,12 @@ router.post(
         })
       );
 
-      // 🔥 สำคัญ: ต้อง 200 เสมอ
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ ok: true });
 
     } catch (err) {
       console.error("❌ WEBHOOK ERROR:", err);
 
-      // 🔥 ห้าม throw → LINE จะ fail
+      // 🔥 ต้องตอบ 200 เท่านั้น
       return res.status(200).json({ error: "handled" });
     }
   }
