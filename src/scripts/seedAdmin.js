@@ -1,4 +1,6 @@
 // src/scripts/seedAdmin.js
+require("dotenv").config();
+
 require("dotenv").config({ path: ".env.local" });
 
 const mongoose = require("mongoose");
