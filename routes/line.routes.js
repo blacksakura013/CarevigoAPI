@@ -9,11 +9,9 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-// 🔥 v11+ ต้องใช้แบบนี้
-const client = new line.messagingApi.MessagingApiClient({
-  channelAccessToken: config.channelAccessToken,
-});
+const client = new line.Client(config);
 
+// webhook
 router.post(
   "/webhook",
   line.middleware(config),
@@ -25,10 +23,10 @@ router.post(
         events.map((event) => handleEvent(event, client))
       );
 
-      res.status(200).end();
+      res.status(200).end(); // 🔥 LINE ต้องได้ 200
     } catch (err) {
-      console.error(err);
-      res.status(200).end();
+      console.error("LINE ERROR:", err);
+      res.status(200).end(); // 🔥 ห้าม throw
     }
   }
 );
