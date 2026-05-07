@@ -1,31 +1,34 @@
 {
   "name": "carevigo-api",
   "version": "1.0.0",
+  "description": "Carevigo Backend API",
   "main": "src/app.js",
 
   "scripts": {
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "dev": "node src/app.js"
   },
 
   "engines": {
-    "node": "20.x"
+    "node": "20.x",
+    "npm": "10.x"
   },
 
   "dependencies": {
     "@line/bot-sdk": "^11.0.0",
-    "axios": "^1.16.0",
-    "bcrypt": "^6.0.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.4.1",
-    "helmet": "^8.1.0",
-    "ioredis": "^5.10.1",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.6.1",
-    "morgan": "^1.10.1",
-    "nodemailer": "^8.0.7",
-    "openai": "^6.36.0",
-    "uuid": "^14.0.0"
+    "axios": "^1.7.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.18.0",
+    "morgan": "^1.10.0",
+    "nodemailer": "^6.9.14",
+    "openai": "^4.56.0",
+    "uuid": "^10.0.0"
   }
 }
