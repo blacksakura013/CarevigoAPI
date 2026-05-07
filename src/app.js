@@ -1,65 +1,72 @@
-require("dotenv").config();
-require("dotenv").config({ path: ".env.local", override: true });
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+  require("dotenv").config({ path: ".env.local", override: true });
+}
 
 const express = require("express");
+const helmet = require("helmet");
+const cors = require("cors");
+const morgan = require("morgan");
 const connectDB = require("./config/db");
 
 // routes
 const authRoutes = require("./routes/auth.routes");
 const publicRoutes = require("./routes/public.routes");
 const userRoutes = require("./routes/user.routes");
-
-// middleware
-const morgan = require("morgan");
-const cors = require("cors");
-const helmet = require("helmet");
+const lineRoutes = require("./routes/line.routes");
 
 const app = express();
 
 // ===============================
-// 🔧 CORE MIDDLEWARE
+// 🔧 CORE
 // ===============================
 app.use(helmet());
 
+// ===============================
+// 🔥 LINE WEBHOOK ต้องมาก่อน json
+// ===============================
+app.use("/api/line", lineRoutes);
+
+// ===============================
+// 📦 BODY PARSER (หลัง LINE)
+// ===============================
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// ===============================
+// 🌐 CORS
+// ===============================
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://carevigo-frontend.onrender.com"
+  "https://carevigo-frontend.onrender.com",
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS blocked"));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS blocked"));
+      }
+    },
+    credentials: true,
+  })
+);
+
+// ===============================
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ===============================
-// 🧪 HEALTH CHECK
+// 🧪 HEALTH
 // ===============================
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
     uptime: process.uptime(),
-    timestamp: new Date()
+    timestamp: new Date(),
   });
 });
-
-// ===============================
-// 🔍 DEBUG ROUTES (สำคัญมาก)
-// ===============================
-if (process.env.NODE_ENV !== "production") {
-  console.log("authRoutes:", typeof authRoutes);
-  console.log("publicRoutes:", typeof publicRoutes);
-  console.log("userRoutes:", typeof userRoutes);
-}
 
 // ===============================
 // 📌 ROUTES
@@ -67,48 +74,47 @@ if (process.env.NODE_ENV !== "production") {
 app.use("/api/auth", authRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/line", require("./routes/line.routes"));
+
 // ===============================
-// ❌ 404 HANDLER
+// ❌ 404
 // ===============================
 app.use((req, res) => {
   res.status(404).json({
     statusCode: 404,
     title: "Not Found",
-    message: "Route not found"
+    message: "Route not found",
   });
 });
 
 // ===============================
-// ⚠️ GLOBAL ERROR HANDLER
+// ⚠️ ERROR
 // ===============================
 app.use((err, req, res, next) => {
   console.error("❌ ERROR:", err);
-
-  res.status(err.statusCode || 500).json({
-    statusCode: err.statusCode || 500,
-    title: "Error",
-    message: err.message || "Internal Server Error"
+  res.status(500).json({
+    statusCode: 500,
+    message: err.message,
   });
 });
 
 // ===============================
-// 🚀 START SERVER
+// 🚀 START
 // ===============================
 const startServer = async () => {
   try {
     await connectDB();
 
-    const PORT = process.env.PORT || 3000;
+    const PORT = process.env.PORT || 8080;
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server running on ${PORT}`);
     });
 
   } catch (err) {
-    console.error("❌ Failed to start server:", err.message);
+    console.error("❌ Startup error:", err);
     process.exit(1);
   }
 };
+
 
 startServer();
