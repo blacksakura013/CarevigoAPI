@@ -1,4 +1,16 @@
 {
+  "name": "carevigo-api",
+  "version": "1.0.0",
+  "main": "src/app.js",
+
+  "scripts": {
+    "start": "node src/app.js"
+  },
+
+  "engines": {
+    "node": "20.x"
+  },
+
   "dependencies": {
     "@line/bot-sdk": "^11.0.0",
     "axios": "^1.16.0",

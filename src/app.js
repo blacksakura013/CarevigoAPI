@@ -103,13 +103,18 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     await connectDB();
-    app.listen(process.env.PORT || 3000, () =>
-      console.log("🚀 Server running")
-    );
+
+    const PORT = process.env.PORT || 8080;
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server running on ${PORT}`);
+    });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ Startup error:", err);
     process.exit(1);
   }
 };
+
 
 startServer();
