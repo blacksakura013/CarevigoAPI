@@ -16,7 +16,7 @@ exports.generateTokens = (admin) => {
     payload,
     process.env.JWT_SECRET,
     {
-      expiresIn: process.env.JWT_EXPIRE || "15m"
+      expiresIn: process.env.JWT_EXPIRE || "7d"
     }
   );
 
