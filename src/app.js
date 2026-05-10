@@ -28,7 +28,7 @@ const connectDB = require("./config/db");
 const authRoutes = require("./routes/auth.routes");
 const publicRoutes = require("./routes/public.routes");
 const userRoutes = require("./routes/user.routes");
-
+const dashboardRoutes = require("./routes/dashboard.routes");
 // ⚠️ LINE route อาจ crash ถ้า ENV ไม่มี
 let lineRoutes = null;
 
@@ -135,6 +135,7 @@ if (lineRoutes) {
 app.use("/api/auth", authRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // ======================================
 // ❌ 404
