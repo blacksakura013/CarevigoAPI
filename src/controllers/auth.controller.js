@@ -9,6 +9,11 @@ const tokenService = require("../services/token.service");
 const response = require("../utils/response");
 
 // ===============================
+// CONFIG
+// ===============================
+const isDev = process.env.NODE_ENV !== "production";
+
+// ===============================
 // REQUEST OTP
 // ===============================
 exports.requestOTP = async (req, res) => {
@@ -16,9 +21,9 @@ exports.requestOTP = async (req, res) => {
 
     const { email } = req.body;
 
-    console.log("📩 REQUEST OTP:", email);
-
-    // ✅ validation
+    // ===============================
+    // VALIDATION
+    // ===============================
     if (!email) {
       return response.error({
         res,
@@ -27,13 +32,26 @@ exports.requestOTP = async (req, res) => {
       });
     }
 
-    // ✅ admin
+    // ===============================
+    // NORMALIZE EMAIL
+    // ===============================
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    console.log("📩 REQUEST OTP:", normalizedEmail);
+
+    // ===============================
+    // FIND ADMIN
+    // ===============================
     const admin = await Admin.findOne({
-      email,
+      email: normalizedEmail,
       isActive: true
     });
 
-    console.log("👤 ADMIN:", admin ? admin.email : null);
+    console.log(
+      "👤 ADMIN:",
+      admin ? admin.email : null
+    );
 
     if (!admin) {
       return response.error({
@@ -43,41 +61,56 @@ exports.requestOTP = async (req, res) => {
       });
     }
 
-    // ✅ generate otp
-    const otp = await otpService.sendOTP(email);
+    // ===============================
+    // GENERATE OTP
+    // ===============================
+    const otp =
+      await otpService.sendOTP(normalizedEmail);
 
-    console.log("🔐 OTP GENERATED:", otp);
+    console.log("🔐 OTP GENERATED");
 
-    // ✅ email
+    // ===============================
+    // SEND EMAIL
+    // ===============================
     try {
 
-      await emailService.sendOTPEmail(email, otp);
+      await emailService.sendOTPEmail(
+        normalizedEmail,
+        otp
+      );
 
       console.log("✅ EMAIL SENT");
 
+      return response.success({
+        res,
+        message: "OTP sent to email",
+        data: null
+      });
+
     } catch (emailErr) {
 
-      console.error("❌ EMAIL ERROR:", emailErr.message);
+      console.error(
+        "❌ EMAIL ERROR:",
+        emailErr.message
+      );
 
-      // 🔥 fallback
+      // 🔥 fallback mode
       return response.success({
         res,
         message: "OTP generated (email failed)",
-        data: {
-          otp // remove in production
-        }
+
+        data: isDev
+          ? { otp }
+          : null
       });
     }
 
-    return response.success({
-      res,
-      message: "OTP sent to email",
-      data: null
-    });
-
   } catch (err) {
 
-    console.error("❌ REQUEST OTP ERROR:", err);
+    console.error(
+      "❌ REQUEST OTP ERROR:",
+      err
+    );
 
     return response.error({
       res,
@@ -94,9 +127,9 @@ exports.verifyOTP = async (req, res) => {
 
     const { email, otp } = req.body;
 
-    console.log("🔎 VERIFY OTP:", email);
-
-    // ✅ validation
+    // ===============================
+    // VALIDATION
+    // ===============================
     if (!email || !otp) {
       return response.error({
         res,
@@ -105,9 +138,22 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
-    // ✅ admin
+    // ===============================
+    // NORMALIZE EMAIL
+    // ===============================
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    console.log(
+      "🔎 VERIFY OTP:",
+      normalizedEmail
+    );
+
+    // ===============================
+    // FIND ADMIN
+    // ===============================
     const admin = await Admin.findOne({
-      email,
+      email: normalizedEmail,
       isActive: true
     });
 
@@ -119,37 +165,62 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
-    // ✅ verify
-    await otpService.verifyOTP(email, otp);
+    // ===============================
+    // VERIFY OTP
+    // ===============================
+    await otpService.verifyOTP(
+      normalizedEmail,
+      otp
+    );
 
     console.log("✅ OTP VERIFIED");
 
-    // ✅ tokens
-    const tokens = tokenService.generateTokens(admin);
+    // ===============================
+    // GENERATE TOKENS
+    // ===============================
+    const tokens =
+      tokenService.generateTokens(admin);
 
-    // ✅ update login
+    // ===============================
+    // UPDATE LAST LOGIN
+    // ===============================
     admin.lastLogin = new Date();
 
     await admin.save();
 
+    // ===============================
+    // RESPONSE
+    // ===============================
     return response.success({
       res,
       message: "Login success",
+
       data: {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        accessToken:
+          tokens.accessToken,
+
+        refreshToken:
+          tokens.refreshToken,
 
         admin: {
           id: admin._id,
+
           email: admin.email,
-          role: admin.role
+
+          role: admin.role,
+
+          lastLogin:
+            admin.lastLogin
         }
       }
     });
 
   } catch (err) {
 
-    console.error("❌ VERIFY OTP ERROR:", err);
+    console.error(
+      "❌ VERIFY OTP ERROR:",
+      err
+    );
 
     return response.error({
       res,
