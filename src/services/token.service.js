@@ -1,99 +1,97 @@
+// ======================================
+// src/services/token.service.js
+// ======================================
+
 const jwt = require("jsonwebtoken");
 
-// 🔐 Generate Tokens
-exports.generateTokens = (admin) => {
-  if (!admin || !admin._id) {
-    throw new Error("Invalid admin data for token generation");
+// ======================================
+// GENERATE TOKEN PAIR
+// ======================================
+
+exports.generateTokenPair = (payload) => {
+  if (!payload?.id) {
+    throw new Error("Invalid payload");
   }
 
-  const payload = {
-    id: admin._id,
-    role: admin.role || "admin"
+  const tokenPayload = {
+    id: payload.id,
+    email: payload.email,
+    role: payload.role || "admin",
+    type: payload.type || "admin",
   };
 
-  // 🎯 Access Token (short-lived)
   const accessToken = jwt.sign(
-    payload,
+    tokenPayload,
     process.env.JWT_SECRET,
     {
-      expiresIn: process.env.JWT_EXPIRE || "7d"
+      expiresIn: process.env.JWT_EXPIRE || "7d",
     }
   );
 
-  // 🔄 Refresh Token (long-lived)
   const refreshToken = jwt.sign(
-    { id: admin._id },
+    tokenPayload,
     process.env.JWT_REFRESH_SECRET,
     {
-      expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d"
+      expiresIn:
+        process.env.JWT_REFRESH_EXPIRE || "30d",
     }
   );
 
   return {
     accessToken,
-    refreshToken
+    refreshToken,
   };
 };
 
+// ======================================
+// VERIFY ACCESS TOKEN
+// ======================================
 
-
-// 🔍 Verify Access Token
 exports.verifyAccessToken = (token) => {
-  try {
-    return jwt.verify(token, process.env.JWT_SECRET);
-  } catch (err) {
-    throw new Error("Invalid or expired access token");
-  }
-};
-
-
-
-// 🔍 Verify Refresh Token
-exports.verifyRefreshToken = (token) => {
-  try {
-    return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-  } catch (err) {
-    throw new Error("Invalid or expired refresh token");
-  }
-};
-
-
-
-// 🔄 Refresh Access Token
-exports.refreshAccessToken = (refreshToken) => {
-  const decoded = this.verifyRefreshToken(refreshToken);
-
-  const newAccessToken = jwt.sign(
-    {
-      id: decoded.id,
-      role: decoded.role || "admin"
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: process.env.JWT_EXPIRE || "15m"
-    }
+  return jwt.verify(
+    token,
+    process.env.JWT_SECRET
   );
-
-  return {
-    accessToken: newAccessToken
-  };
 };
 
+// ======================================
+// VERIFY REFRESH TOKEN
+// ======================================
 
+exports.verifyRefreshToken = (token) => {
+  return jwt.verify(
+    token,
+    process.env.JWT_REFRESH_SECRET
+  );
+};
 
-// 🧹 Extract Token from Header
+// ======================================
+// REFRESH TOKEN
+// ======================================
+
+exports.refreshToken = (refreshToken) => {
+
+  const decoded =
+    exports.verifyRefreshToken(refreshToken);
+
+  return exports.generateTokenPair(decoded);
+};
+
+// ======================================
+// EXTRACT TOKEN
+// ======================================
+
 exports.extractToken = (req) => {
+
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
-    throw new Error("No authorization header");
+    throw new Error("Authorization header required");
   }
 
-  const token = authHeader.split(" ")[1];
-
-  if (!token) {
-    throw new Error("Invalid token format");
+  if (!authHeader.startsWith("Bearer ")) {
+    throw new Error("Invalid authorization format");
   }
 
-  return token;
+  return authHeader.replace("Bearer ", "");
 };

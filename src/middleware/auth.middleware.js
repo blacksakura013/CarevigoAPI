@@ -1,43 +1,56 @@
+// ======================================
+// src/middleware/auth.middleware.js
+// ======================================
+
 const jwt = require("jsonwebtoken");
 
-// 🔐 ตรวจ token + attach user เข้า req
+// ======================================
+// VERIFY JWT
+// ======================================
+
 module.exports = (req, res, next) => {
   try {
-    // 🔍 ดึง header
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
       return res.status(401).json({
         statusCode: 401,
         title: "Unauthorized",
-        message: "No token provided"
+        message: "Authorization header is required",
       });
     }
 
-    // format: Bearer token
-    const token = authHeader.split(" ")[1];
-
-    if (!token) {
+    if (!authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         statusCode: 401,
         title: "Unauthorized",
-        message: "Invalid token format"
+        message: "Invalid authorization format",
       });
     }
 
-    // 🔑 verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const token = authHeader.substring(7);
 
-    // attach user ไปให้ controller ใช้
-    req.user = decoded;
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      type: decoded.type,
+    };
 
     next();
 
   } catch (err) {
+    console.error("JWT ERROR:", err.message);
+
     return res.status(401).json({
       statusCode: 401,
       title: "Unauthorized",
-      message: "Invalid or expired token"
+      message: "Invalid or expired token",
     });
   }
 };

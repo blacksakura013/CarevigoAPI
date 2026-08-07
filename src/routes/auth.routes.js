@@ -1,8 +1,15 @@
-// src/routes/auth.routes.js
-const router = require("express").Router();
-const auth = require("../controllers/auth.controller");
+const express = require("express");
+const router = express.Router();
 
-router.post("/admin/request-otp", auth.requestOTP);
-router.post("/admin/verify-otp", auth.verifyOTP);
+const authController = require("../controllers/auth.controller");
+const authMiddleware = require("../middleware/auth.middleware");
+
+router.post("/login", authController.login);
+
+router.post(
+  "/change-password",
+  authMiddleware,
+  authController.changePassword
+);
 
 module.exports = router;
