@@ -1,91 +1,143 @@
+// ======================================
+// src/services/email.service.js
+// ======================================
+
 const nodemailer = require("nodemailer");
 const path = require("path");
+const fs = require("fs");
+
+// ======================================
+// SMTP
+// ======================================
 
 const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE,
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// ======================================
+// VERIFY SMTP
+// ======================================
+
+transporter.verify((err, success) => {
+  if (err) {
+    console.error("❌ SMTP VERIFY ERROR");
+    console.error(err);
+  } else {
+    console.log("✅ Gmail SMTP Ready");
   }
 });
 
-// 🎨 HTML TEMPLATE
-const getOTPTemplate = (otp) => {
-  return `
-  <html>
-  <body style="margin:0; background:#f4f6f8; font-family:Arial;">
-    
-    <table width="100%" style="padding:20px;">
-      <tr>
-        <td align="center">
-          
-          <table width="500" style="background:#fff; border-radius:12px; padding:30px;">
-            
-            <!-- LOGO -->
-            <tr>
-              <td align="center" style="padding-bottom:20px;">
-                <img src="cid:logo" width="120" />
-              </td>
-            </tr>
+// ======================================
+// TEMPLATE
+// ======================================
 
-            <!-- TITLE -->
-            <tr>
-              <td align="center">
-                <h2 style="color:#2e7d32;">Your OTP Code</h2>
-              </td>
-            </tr>
+const getOTPTemplate = (otp) => `
+<table width="100%" style="padding:20px;background:#f5f5f5">
+<tr>
+<td align="center">
 
-            <!-- OTP -->
-            <tr>
-              <td align="center">
-                <div style="
-                  font-size:32px;
-                  font-weight:bold;
-                  letter-spacing:6px;
-                  background:#e8f5e9;
-                  color:#2e7d32;
-                  padding:15px 25px;
-                  border-radius:8px;
-                  display:inline-block;
-                  margin:20px 0;
-                ">
-                  ${otp}
-                </div>
-              </td>
-            </tr>
+<table width="500" style="background:#ffffff;border-radius:12px;padding:30px">
 
-            <!-- TEXT -->
-            <tr>
-              <td align="center" style="color:#555;">
-                OTP นี้ใช้ได้ 5 นาที กรุณาอย่าแชร์กับผู้อื่น
-              </td>
-            </tr>
+<tr>
+<td align="center">
+<h2 style="color:#2e7d32">
+CareVigo Verification
+</h2>
+</td>
+</tr>
 
-          </table>
+<tr>
+<td align="center">
 
-        </td>
-      </tr>
-    </table>
+<div
+style="
+font-size:34px;
+font-weight:bold;
+letter-spacing:8px;
+background:#e8f5e9;
+padding:16px 24px;
+border-radius:10px;
+display:inline-block;
+color:#2e7d32;
+"
+>
+${otp}
+</div>
 
-  </body>
-  </html>
-  `;
-};
+</td>
+</tr>
 
-// 📩 send email
+<tr>
+<td align="center"
+style="
+padding-top:20px;
+color:#666;
+font-size:14px;
+"
+>
+OTP นี้สามารถใช้งานได้ภายใน 5 นาที
+<br>
+กรุณาอย่าเปิดเผยรหัสนี้กับผู้อื่น
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+`;
+
+// ======================================
+// SEND OTP
+// ======================================
+
 exports.sendOTPEmail = async (email, otp) => {
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to: email,
-    subject: "Carevigo - OTP Code",
-    html: getOTPTemplate(otp),
+  console.log("=================================");
+  console.log("📧 SEND OTP EMAIL");
+  console.log("TO:", email);
+  console.log("EMAIL_USER:", process.env.EMAIL_USER);
+  console.log("=================================");
 
-    attachments: [
+  const mailOptions = {
+    from: `"CareVigo" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "CareVigo - OTP Verification",
+    html: getOTPTemplate(otp),
+  };
+
+  // แนบ logo ถ้ามีจริง
+  const logoPath = path.join(__dirname, "logo.png");
+
+  if (fs.existsSync(logoPath)) {
+    mailOptions.attachments = [
       {
         filename: "logo.png",
-        path: path.join(__dirname, "logo.png"),
-        cid: "logo"
-      }
-    ]
-  });
+        path: logoPath,
+        cid: "logo",
+      },
+    ];
+  } else {
+    console.warn("⚠ logo.png not found, sending without logo.");
+  }
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log("✅ EMAIL SENT");
+    console.log(info);
+
+    return info;
+  } catch (err) {
+    console.error("❌ SEND EMAIL ERROR");
+    console.error(err);
+
+    throw err;
+  }
 };
