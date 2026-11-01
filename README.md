@@ -570,6 +570,15 @@ or 503 with `status: NOT_READY` after disconnection; a configured URI alone is
 not a readiness signal. API error and preflight responses use `Cache-Control:
 no-store`, and request logs omit URL queries containing capability tokens.
 
+An unavailable `/api/health` response includes `Retry-After: 3`, exposed through
+CORS for the frontend's bounded readiness polling; a ready 200 response omits it.
+Use an anonymous health GET to wait for a suspended host to wake before sending
+the original login or save request. Retrying readiness must never replay a save
+or other mutation. A backend interval cannot wake its own suspended process;
+this improves cold-start handling without changing hosting plans or adding pings.
+The review worker catches up overdue approvals and queued email after startup;
+it cannot run at 23:59 while the host suspends the process.
+
 Run the normal regression suite and the two explicit integration suites:
 
 ```powershell

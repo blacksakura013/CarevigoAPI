@@ -100,9 +100,50 @@ test("health reports actual database readiness and API errors are never cached",
   const blocked = await fetch(`${base}/api/health`, { headers: { Origin: "https://blocked.example.test" } });
   assert.equal(blocked.status, 403);
   assert.equal(blocked.headers.get("cache-control"), "no-store");
+  assert.equal(blocked.headers.get("retry-after"), null);
   const invalid = await fetch(`${base}/api/public/submissions`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: "{broken",
   });
   assert.equal(invalid.status, 400);
   assert.equal(invalid.headers.get("cache-control"), "no-store");
+  assert.equal(invalid.headers.get("retry-after"), null);
+});
+
+test("cross-origin readiness polling receives a retry delay only while MongoDB is unavailable", async t => {
+  const origin = "https://readiness.example.test";
+  const previousOrigins = process.env.CORS_ALLOWED_ORIGINS;
+  process.env.CORS_ALLOWED_ORIGINS = origin;
+  t.after(() => {
+    if (previousOrigins === undefined) delete process.env.CORS_ALLOWED_ORIGINS;
+    else process.env.CORS_ALLOWED_ORIGINS = previousOrigins;
+  });
+  assert.equal(mongoose.connection.readyState, 0);
+  const app = createApp({ enableLine: false, logRequests: false });
+  const original = Object.getOwnPropertyDescriptor(mongoose.connection, "readyState");
+  let readiness = 0;
+  // Change only the observed state; never open a database or emit connection events.
+  Object.defineProperty(mongoose.connection, "readyState", { configurable: true, get: () => readiness });
+  t.after(() => {
+    if (original) Object.defineProperty(mongoose.connection, "readyState", original);
+    else delete mongoose.connection.readyState;
+  });
+  const server = await new Promise(resolve => {
+    const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
+  });
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const healthUrl = `http://127.0.0.1:${server.address().port}/api/health`;
+  for (const state of [0, 2, 1, 0]) {
+    readiness = state;
+    const health = await fetch(healthUrl, { headers: { Origin: origin } });
+    assert.equal(health.status, state === 1 ? 200 : 503);
+    assert.equal(health.headers.get("retry-after"), state === 1 ? null : "3");
+    assert.equal(health.headers.get("cache-control"), "no-store");
+    assert.equal(health.headers.get("access-control-allow-origin"), origin);
+    const exposed = health.headers.get("access-control-expose-headers").toLowerCase().split(/\s*,\s*/);
+    assert.ok(exposed.includes("retry-after"));
+    assert.ok(exposed.includes("x-carevigo-session-id"));
+    const body = await health.json();
+    assert.equal(body.status, state === 1 ? "OK" : "NOT_READY");
+    assert.equal(body.mongodb, state === 1 ? "CONNECTED" : "DISCONNECTED");
+  }
 });

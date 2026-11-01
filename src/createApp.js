@@ -24,7 +24,7 @@ function createApp({ enableLine = true, logRequests = true } = {}) {
       const error = new Error("CORS blocked"); error.status = 403; callback(error);
     },
     credentials: true,
-    exposedHeaders: ["X-Carevigo-Session-Id"],
+    exposedHeaders: ["X-Carevigo-Session-Id", "Retry-After"],
   }));
   if (logRequests) {
     morgan.token("safe-url", req => req.path);
@@ -35,6 +35,7 @@ function createApp({ enableLine = true, logRequests = true } = {}) {
   app.get("/", (req, res) => res.json({ service: "Save Stroke API", status: "RUNNING", timestamp: new Date() }));
   app.get("/api/health", (req, res) => {
     const connected = mongoose.connection.readyState === 1;
+    if (!connected) res.set("Retry-After", "3");
     res.status(connected ? 200 : 503).json({
       status: connected ? "OK" : "NOT_READY", uptime: process.uptime(), timestamp: new Date(),
       mongodb: connected ? "CONNECTED" : "DISCONNECTED",
