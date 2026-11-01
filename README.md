@@ -384,6 +384,37 @@ The service processes bounded batches of 100 until the matching snapshot is comp
 `rejected`, and `all`; legacy records without a review state count as approved.
 Dashboard health also accepts `reviewStatus` with those values.
 
+### Staff dashboard record queries
+
+`GET /api/dashboard/health` applies all filters before pagination. Parameters:
+
+| Parameter | Accepted values |
+| --- | --- |
+| `page`, `limit` | Positive integers; limit at most100 |
+| `type` | `all`, `blood_pressure`, `sugar`, `cholesterol`, `bmi` |
+| `search` | Bounded literal text matching joined member name, citizen ID or province |
+| `reviewStatus` | `all`, `pending`, `approved`, `rejected` |
+| `riskLevel` | `all`, `low`, `moderate`, `high`, `unavailable` |
+| `bmiLevel` | `all`, `underweight`, `normal`, `risk_low`, `risk_medium`, `risk_high` |
+| `sort` | `newest`, `oldest`, `name`, `risk_desc`, `risk_asc` |
+
+Malformed, repeated/non-scalar and unsupported filter values return400. Search
+is escaped text, not an executable regular expression. Thai CV filtering uses
+the valid JSON numeric assessment (BSON double/int) stored with each record:
+below10,10 through20, above20 percent; invalid/missing results are unavailable,
+not zero. Legacy BMI
+groups remain a separate filter. Sorts use an ID tie-breaker; unavailable CV
+scores remain last in either score direction.
+
+The response's `total`, `page`, `limit` and `hasMore` describe the filtered record
+set. `data.records` contains that page; `data.summary` is the global record
+count per type, including all review states, with `data.summaryScope: "all"`.
+Thus changing a filter does not change the meaning of the four dashboard cards.
+Legacy records without reviewStatus are included in approved queries. Numeric
+userKey ownership stays authoritative and IDs stay decimal strings in JSON.
+The endpoint retains its existing active staff authorization; no public patient
+lookup or additional health write is introduced.
+
 Only approved/legacy measurements feed true CV assessment. On guest approval,
 newly approved records additionally receive an assessment based on their immutable
 submitted profile, marked `inputs.profileSource: submitted-profile`. The primary

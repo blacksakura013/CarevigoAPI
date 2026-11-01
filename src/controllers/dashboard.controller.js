@@ -6,6 +6,7 @@ const User = require("../models/User");
 const Health = require("../models/Health");
 
 const response = require("../utils/response");
+const { dashboardHealthQuery, dashboardHealthPipeline } = require("../utils/dashboardHealthQuery");
 
 // Numeric keys are authoritative. Old ObjectId/citizen links are consulted only
 // for rows that have not been backfilled, including during a resumable migration.
@@ -153,133 +154,24 @@ exports.usersAnalytics = async (req, res) => {
 // ===============================
 exports.healthAnalytics = async (req, res) => {
   try {
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-
-    const skip = (page - 1) * limit;
-
-    const type = req.query.type;
-
-    // ===============================
-    // FILTER
-    // ===============================
-    const filter = {};
-
-    if (type) {
-      filter.type = type;
-    }
-    const reviewStatus = req.query.reviewStatus;
-    if (reviewStatus && !["pending", "approved", "rejected", "all"].includes(reviewStatus)) {
-      return response.error({ res, statusCode: 400, message: "สถานะตรวจสอบไม่ถูกต้อง" });
-    }
-    if (reviewStatus === "approved") filter.$or = [{ reviewStatus: "approved" }, { reviewStatus: { $exists: false } }];
-    else if (reviewStatus && reviewStatus !== "all") filter.reviewStatus = reviewStatus;
-
-    // ===============================
-    // SUMMARY
-    // ===============================
-    const grouped = await Health.aggregate([
-      {
-        $group: {
-          _id: "$type",
-          total: { $sum: 1 }
-        }
-      }
+    const query = dashboardHealthQuery(req.query);
+    const [grouped, result] = await Promise.all([
+      Health.aggregate([{ $group: { _id: "$type", total: { $sum: 1 } } }]),
+      Health.aggregate(dashboardHealthPipeline(query, User.collection.name))
+        .option({ useBigInt64: true }).collation({ locale: "th", strength: 2 }),
     ]);
-
-    const summary = {
-      blood_pressure: 0,
-      sugar: 0,
-      cholesterol: 0
-    };
-
-    grouped.forEach(item => {
-      summary[item._id] = item.total;
-    });
-
-    // ===============================
-    // RECORDS
-    // ===============================
-    const records = await Health.find(filter)
-
-      .populate([{
-        path: "userByKey",
-        select: `internalId
-          firstName
-          lastName
-          phone
-          province
-          gender
-          birthDate
-          citizenId
-        `
-      }, {
-        path: "userId", select: "firstName lastName phone province gender birthDate citizenId"
-      }])
-
-      .sort({ createdAt: -1 })
-
-      .skip(skip)
-
-      .limit(limit);
-
-    // ===============================
-    // FORMAT
-    // ===============================
-    const formatted = records.map(item => ({
-      _id: item._id,
-
-      type: item.type,
-
-      value: item.value,
-
-      bmi: item.bmi,
-
-      cvdRisk: item.cvdRisk,
-      thaiCvRisk: item.thaiCvRisk,
-      reviewStatus: item.reviewStatus || "approved", reviewHistory: item.reviewHistory || [],
-      submittedProfile: item.submittedProfile, submittedAt: item.submittedAt,
-      reviewDueAt: item.reviewDueAt, reviewedAt: item.reviewedAt, reviewSource: item.reviewSource,
-      reviewReason: item.reviewReason, source: item.source,
-
-      createdAt: item.createdAt,
-
-      internalId: item.internalId,
-      userKey: item.userKey,
-      user: item.userKey === undefined ? item.userId : item.userByKey
-    }));
-
-    // ===============================
-    // TOTAL
-    // ===============================
-    const total = await Health.countDocuments(filter);
-
+    const summary = { blood_pressure: 0, sugar: 0, cholesterol: 0, bmi: 0 };
+    grouped.forEach(item => { if (Object.hasOwn(summary, item._id)) summary[item._id] = item.total; });
+    const { records = [], total: totals = [] } = result[0] || {};
     return response.success({
       res,
       message: "Health analytics fetched",
-
-      total,
-
-      page,
-
-      limit,
-
-      hasMore: skip + records.length < total,
-
-      data: {
-        summary,
-        records: formatted
-      }
+      total: totals[0]?.value || 0, page: query.page, limit: query.limit,
+      data: { summary, summaryScope: "all", records }
     });
-
   } catch (err) {
-
-    return response.error({
-      res,
-      message: err.message
-    });
-
+    return response.error({ res, statusCode: err.code === "INVALID_DASHBOARD_QUERY" ? 400 : 500,
+      message: err.code === "INVALID_DASHBOARD_QUERY" ? err.message : "โหลดรายการสุขภาพไม่สำเร็จ กรุณาลองอีกครั้ง" });
   }
 };
 // ===============================
