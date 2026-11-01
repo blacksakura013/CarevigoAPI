@@ -1,11 +1,14 @@
 const OpenAI = require("openai");
 
-const client = new OpenAI({
-  apiKey: "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",
-});
+let client;
+function configuredClient() {
+  if (!process.env.OPENAI_API_KEY) throw new Error("AI service is not configured");
+  if (!client) client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return client;
+}
 
 exports.askAI = async (message) => {
-  const res = await client.chat.completions.create({
+  const res = await configuredClient().chat.completions.create({
     model: "gpt-5-mini",
     messages: [
       {

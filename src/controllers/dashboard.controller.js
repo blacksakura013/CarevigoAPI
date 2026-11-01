@@ -7,6 +7,15 @@ const Health = require("../models/Health");
 
 const response = require("../utils/response");
 
+// Numeric keys are authoritative. Old ObjectId/citizen links are consulted only
+// for rows that have not been backfilled, including during a resumable migration.
+const userJoinExpression = { $or: [
+  { $and: [{ $gt: ["$$userKey", 0] }, { $eq: ["$internalId", "$$userKey"] }] },
+  { $and: [{ $eq: [{ $type: "$$userKey" }, "missing"] }, { $or: [
+    { $eq: ["$_id", "$$userId"] }, { $eq: ["$citizenId", "$$citizenId"] }
+  ] }] }
+] };
+
 // ===============================
 // SUMMARY
 // ===============================
@@ -22,7 +31,9 @@ exports.summary = async (req, res) => {
       totalHealthRecords,
       todayHealthRecords,
       todayNewUsers,
-      highRiskUsers
+      highRiskRecords,
+      highRiskUserCounts,
+      thaiCvRiskGroups
     ] = await Promise.all([
       User.countDocuments(),
 
@@ -46,8 +57,31 @@ exports.summary = async (req, res) => {
 
       Health.countDocuments({
         "cvdRisk.level": "risk_high"
-      })
+      }),
+
+      Health.aggregate([
+        { $match: { "cvdRisk.level": "risk_high" } },
+        { $lookup: { from: User.collection.name,
+          let: { userKey: "$userKey", userId: "$userId", citizenId: "$citizenId" },
+          pipeline: [{ $match: { $expr: userJoinExpression } }, { $project: { internalId: 1 } }], as: "linkedUser" } },
+        { $group: { _id: { $ifNull: [{ $first: "$linkedUser.internalId" },
+          { $ifNull: ["$userKey", { $ifNull: ["$citizenId", "$userId"] }] }] } } },
+        { $match: { _id: { $nin: [null, ""] } } },
+        { $count: "total" }
+      ]),
+      User.aggregate([
+        { $group: { _id: { status: "$thaiCvRisk.status", level: "$thaiCvRisk.level" }, total: { $sum: 1 } } }
+      ])
     ]);
+    const thaiCvRisk = { low: 0, moderate: 0, high: 0, incomplete: 0, ineligible: 0, totalCalculated: 0 };
+    for (const group of thaiCvRiskGroups) {
+      const { status, level } = group._id || {};
+      if (status === "calculated" && ["low", "moderate", "high"].includes(level)) {
+        thaiCvRisk[level] += group.total;
+        thaiCvRisk.totalCalculated += group.total;
+      } else if (status === "ineligible") thaiCvRisk.ineligible += group.total;
+      else thaiCvRisk.incomplete += group.total;
+    }
 
     return response.success({
       res,
@@ -59,7 +93,9 @@ exports.summary = async (req, res) => {
         totalHealthRecords,
         todayHealthRecords,
         todayNewUsers,
-        highRiskUsers
+        highRiskUsers: highRiskUserCounts[0]?.total || 0,
+        highRiskRecords,
+        thaiCvRisk
       }
     });
 
@@ -128,6 +164,12 @@ exports.healthAnalytics = async (req, res) => {
     if (type) {
       filter.type = type;
     }
+    const reviewStatus = req.query.reviewStatus;
+    if (reviewStatus && !["pending", "approved", "rejected", "all"].includes(reviewStatus)) {
+      return response.error({ res, statusCode: 400, message: "สถานะตรวจสอบไม่ถูกต้อง" });
+    }
+    if (reviewStatus === "approved") filter.$or = [{ reviewStatus: "approved" }, { reviewStatus: { $exists: false } }];
+    else if (reviewStatus && reviewStatus !== "all") filter.reviewStatus = reviewStatus;
 
     // ===============================
     // SUMMARY
@@ -156,9 +198,9 @@ exports.healthAnalytics = async (req, res) => {
     // ===============================
     const records = await Health.find(filter)
 
-      .populate({
-        path: "userId",
-        select: `
+      .populate([{
+        path: "userByKey",
+        select: `internalId
           firstName
           lastName
           phone
@@ -167,7 +209,9 @@ exports.healthAnalytics = async (req, res) => {
           birthDate
           citizenId
         `
-      })
+      }, {
+        path: "userId", select: "firstName lastName phone province gender birthDate citizenId"
+      }])
 
       .sort({ createdAt: -1 })
 
@@ -188,10 +232,17 @@ exports.healthAnalytics = async (req, res) => {
       bmi: item.bmi,
 
       cvdRisk: item.cvdRisk,
+      thaiCvRisk: item.thaiCvRisk,
+      reviewStatus: item.reviewStatus || "approved", reviewHistory: item.reviewHistory || [],
+      submittedProfile: item.submittedProfile, submittedAt: item.submittedAt,
+      reviewDueAt: item.reviewDueAt, reviewedAt: item.reviewedAt, reviewSource: item.reviewSource,
+      reviewReason: item.reviewReason, source: item.source,
 
       createdAt: item.createdAt,
 
-      user: item.userId
+      internalId: item.internalId,
+      userKey: item.userKey,
+      user: item.userKey === undefined ? item.userId : item.userByKey
     }));
 
     // ===============================
@@ -364,9 +415,12 @@ exports.riskByProvince = async (req, res) => {
     const result = await User.aggregate([
       {
         $lookup: {
-          from: "healths",
-          localField: "_id",
-          foreignField: "userId",
+          from: Health.collection.name,
+          let: { userKey: "$internalId", userId: "$_id" },
+          pipeline: [{ $match: { $expr: { $or: [
+            { $and: [{ $gt: ["$$userKey", 0] }, { $eq: ["$userKey", "$$userKey"] }] },
+            { $and: [{ $eq: [{ $type: "$userKey" }, "missing"] }, { $eq: ["$userId", "$$userId"] }] }
+          ] } } }],
           as: "health"
         }
       },

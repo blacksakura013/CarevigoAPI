@@ -20,10 +20,9 @@ const connectDB = async () => {
     return conn;
 
   } catch (err) {
-    console.error("❌ MongoDB Error:", err.message);
-
-    // ❌ ห้าม process.exit(1)
-    return null;
+    // Let startup fail before opening the HTTP port. The caller owns reporting
+    // and must not expose a connection error that can contain credentials.
+    throw err;
   }
 };
 

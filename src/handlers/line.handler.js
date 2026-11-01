@@ -2,11 +2,17 @@ const {
   replyText,
   replyMenu,
   replyEmergency,
-  replyProfile,
 } = require("../services/line.service");
 
-const { getProfile } = require("../services/api.service");
 const { askAI } = require("../services/openai.service");
+function patientLoginUrl() {
+  const fallback = "https://carevigo-frontend.onrender.com/login";
+  try {
+    const configured = new URL(process.env.FRONTEND_URL || fallback);
+    if (configured.protocol !== "https:" && !(configured.protocol === "http:" && ["localhost", "127.0.0.1"].includes(configured.hostname))) return fallback;
+    return `${configured.origin}/login`;
+  } catch { return fallback; }
+}
 
 // ===============================
 // 🤖 MAIN HANDLER
@@ -22,7 +28,6 @@ module.exports = async (event, client) => {
 
     const text = (event.message.text || "").trim();
 
-    console.log("📩 USER:", text);
 
     // ===============================
     // 📋 MENU
@@ -35,31 +40,8 @@ module.exports = async (event, client) => {
     // 👤 PROFILE
     // ===============================
     if (text.startsWith("profile")) {
-      const citizenId = text.split(" ")[1];
-
-      if (!citizenId) {
-        return await replyText(
-          client,
-          event.replyToken,
-          "กรุณาระบุเลขบัตร เช่น profile 1103xxxxxxx"
-        );
-      }
-
-      try {
-        const res = await getProfile(citizenId);
-
-        const user = res?.data?.data?.user;
-
-        return await replyProfile(client, event.replyToken, user);
-      } catch (err) {
-        console.error("❌ PROFILE ERROR:", err.message);
-
-        return await replyText(
-          client,
-          event.replyToken,
-          "ไม่พบข้อมูลผู้ใช้"
-        );
-      }
+      return await replyText(client, event.replyToken,
+        `เพื่อความเป็นส่วนตัว กรุณาเข้าสู่ระบบผู้รับบริการเพื่อดูข้อมูลของคุณ\n${patientLoginUrl()}\nขณะนี้ยังไม่เปิดการเชื่อมบัญชีส่วนตัวผ่าน LINE`);
     }
 
     // ===============================

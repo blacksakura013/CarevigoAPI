@@ -6,7 +6,11 @@
 
   "scripts": {
     "start": "node src/app.js",
-    "dev": "node src/app.js"
+    "dev": "node src/app.js",
+    "test": "node --test",
+    "test:integration:bigint": "node -e \"process.env.CAREVIGO_BIGINT_INTEGRATION='1';require('./test/internal-id-integration.test.js')\"",
+    "test:integration:workflow": "node -e \"process.env.CAREVIGO_WORKFLOW_INTEGRATION='1';require('./test/workflow-integration.test.js')\"",
+    "migrate:internal-ids": "node src/scripts/migrateInternalIds.js"
   },
 
   "engines": {

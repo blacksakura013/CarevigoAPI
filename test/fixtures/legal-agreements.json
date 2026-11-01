@@ -1,0 +1,4 @@
+{
+  "patient": { "termsVersion": "2026-11-01", "privacyVersion": "2026-11-01", "termsAccepted": true, "healthDataConsent": true },
+  "staff": { "termsVersion": "2026-11-01", "privacyVersion": "2026-11-01", "termsAccepted": true, "privacyNoticeAcknowledged": true, "lawfulAuthorityConfirmed": true }
+}

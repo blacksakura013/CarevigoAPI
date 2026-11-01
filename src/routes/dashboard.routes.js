@@ -5,6 +5,8 @@ const router = require("express").Router();
 const dashboard = require("../controllers/dashboard.controller");
 
 const authMiddleware = require("../middleware/auth.middleware");
+const { requireStaff } = require("../middleware/access.middleware");
+router.use(authMiddleware, requireStaff);
 
 // ===============================
 // 📊 DASHBOARD SUMMARY

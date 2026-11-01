@@ -15,7 +15,7 @@ exports.replyMenu = async (client, token) => {
         type: "box",
         layout: "vertical",
         contents: [
-          { type: "text", text: "Carevigo", weight: "bold", size: "lg" },
+          { type: "text", text: "Save Stroke", weight: "bold", size: "lg" },
           { type: "text", text: "เลือกเมนู", margin: "md" },
         ],
       },
@@ -28,7 +28,7 @@ exports.replyMenu = async (client, token) => {
             action: {
               type: "message",
               label: "ดูข้อมูล",
-              text: "profile 1103701234567",
+              text: "profile",
             },
           },
           {

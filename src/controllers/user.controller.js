@@ -1,79 +1,18 @@
-const mongoose = require("mongoose");
 const User = require("../models/User");
 const Health = require("../models/Health");
 const response = require("../utils/response");
+const { getPagination } = require("../utils/pagination");
+const { pickProfile, safePatient } = require("../utils/patientProfile");
+const { calculateThaiCvRisk } = require("../utils/thaiCvRisk");
+const { healthForUser } = require("../utils/internalQueries");
+const { validateAgreements, agreementProof, sendAgreementError } = require("../utils/legal");
 
 // ===============================
 // 🟢 CREATE / UPDATE (PUBLIC)
 // ===============================
-exports.createOrUpdateUser = async (req, res) => {
-    try {
-        const { citizenId } = req.body;
-
-        if (!citizenId) {
-            return response.error({
-                res,
-                statusCode: 400,
-                message: "citizenId is required"
-            });
-        }
-
-        // 🔒 validate citizenId (13 digits)
-        if (!/^\d{13}$/.test(citizenId)) {
-            return response.error({
-                res,
-                statusCode: 400,
-                message: "Invalid citizenId format"
-            });
-        }
-
-        let user = await User.findOne({ citizenId });
-
-        // 🔁 UPDATE
-        if (user) {
-            user = await User.findOneAndUpdate(
-                { citizenId },
-                req.body,
-                { new: true }
-            );
-
-            return response.success({
-                res,
-                message: "User updated",
-                data: {
-                    id: user._id,
-                    citizenId: user.citizenId,
-                    status: user.status,
-                    isVerified: user.isVerified
-                }
-            });
-        }
-
-        // ➕ CREATE
-        user = await User.create({
-            ...req.body,
-            status: "pending",
-            isVerified: false
-        });
-
-        return response.success({
-            res,
-            message: "User created (pending)",
-            data: {
-                id: user._id,
-                citizenId: user.citizenId,
-                status: user.status,
-                isVerified: user.isVerified
-            }
-        });
-
-    } catch (err) {
-        return response.error({
-            res,
-            message: err.message
-        });
-    }
-};
+// Compatibility export; HTTP routes require staff and creation never updates an
+// existing account or accepts account/security fields from a registration body.
+exports.createOrUpdateUser = (req, res) => exports.createUserAdmin(req, res);
 
 // ===============================
 // 🔍 SEARCH BY CITIZEN ID
@@ -82,7 +21,7 @@ exports.getUserByCitizenId = async (req, res) => {
     try {
         const { citizenId } = req.query;
 
-        if (!citizenId) {
+        if (typeof citizenId !== "string" || !/^\d{13}$/.test(citizenId)) {
             return response.error({
                 res,
                 statusCode: 400,
@@ -103,7 +42,7 @@ exports.getUserByCitizenId = async (req, res) => {
         return response.success({
             res,
             message: "User found",
-            data: user
+            data: safePatient(user)
         });
 
     } catch (err) {
@@ -119,9 +58,10 @@ exports.getUserByCitizenId = async (req, res) => {
 // ===============================
 exports.createUserAdmin = async (req, res) => {
     try {
-        const { citizenId } = req.body;
+        const { citizenId } = req.body || {};
+        const legalAgreement = agreementProof(validateAgreements(req.body?.agreements, "staff-attestation"), "staff-attestation", req.user);
 
-        if (!citizenId) {
+        if (typeof citizenId !== "string" || !/^\d{13}$/.test(citizenId)) {
             return response.error({
                 res,
                 statusCode: 400,
@@ -139,19 +79,28 @@ exports.createUserAdmin = async (req, res) => {
             });
         }
 
+        if (typeof citizenId !== "string" || !/^\d{13}$/.test(citizenId)) {
+            return response.error({ res, statusCode: 400, message: "เลขบัตรประชาชนต้องมี 13 หลัก" });
+        }
+        const profile = pickProfile(req.body);
         const user = await User.create({
-            ...req.body,
+            ...profile,
+            legalAgreement,
+            legalAgreementHistory: [legalAgreement],
+            citizenId,
             status: "active",
-            isVerified: true
+            isVerified: true,
+            thaiCvRisk: calculateThaiCvRisk(profile)
         });
 
         return response.success({
             res,
             message: "User created",
-            data: user
+            data: safePatient(user)
         });
 
     } catch (err) {
+        if (sendAgreementError(err, res)) return;
         return response.error({
             res,
             message: err.message
@@ -183,7 +132,7 @@ exports.approveUser = async (req, res) => {
         return response.success({
             res,
             message: "User approved",
-            data: user
+            data: safePatient(user)
         });
 
     } catch (err) {
@@ -199,20 +148,61 @@ exports.approveUser = async (req, res) => {
 // ===============================
 exports.getUsers = async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const { page, limit, skip } = getPagination(req.query);
+        const { status, search, riskLevel } = req.query;
+        if (
+            (status !== undefined && typeof status !== "string") ||
+            (search !== undefined && typeof search !== "string") ||
+            (riskLevel !== undefined && !["low", "moderate", "high", "unavailable"].includes(riskLevel))
+        ) {
+            return response.error({
+                res,
+                statusCode: 400,
+                message: "Invalid member filters"
+            });
+        }
 
-        const skip = (page - 1) * limit;
+        const filter = {};
+        if (status && status.trim()) filter.status = status.trim();
+        if (riskLevel === "unavailable") filter["thaiCvRisk.status"] = { $ne: "calculated" };
+        else if (riskLevel) {
+            filter["thaiCvRisk.status"] = "calculated";
+            filter["thaiCvRisk.level"] = riskLevel;
+        }
+        if (search && search.trim()) {
+            const escapedSearch = search.trim().slice(0, 100)
+                .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            filter.$or = [
+                ...["firstName", "lastName", "citizenId", "phone", "province"].map(
+                    field => ({ [field]: { $regex: escapedSearch, $options: "i" } })
+                ),
+                {
+                    $expr: {
+                        $regexMatch: {
+                            input: {
+                                $concat: [
+                                    { $ifNull: ["$firstName", ""] },
+                                    " ",
+                                    { $ifNull: ["$lastName", ""] }
+                                ]
+                            },
+                            regex: escapedSearch,
+                            options: "i"
+                        }
+                    }
+                }
+            ];
+        }
 
         const [users, total] = await Promise.all([
-            User.find().skip(skip).limit(limit),
-            User.countDocuments()
+            User.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit),
+            User.countDocuments(filter)
         ]);
 
         return response.success({
             res,
             message: "Get users success",
-            data: users,
+            data: users.map(safePatient),
             total,
             page,
             limit,
@@ -235,7 +225,7 @@ exports.getUserById = async (req, res) => {
         const requester = req.user;
 
         if (
-            requester.role !== "admin" &&
+            !["admin", "superadmin"].includes(requester.role) &&
             requester.id.toString() !== req.params.id.toString()
         ) {
             return response.error({
@@ -258,7 +248,7 @@ exports.getUserById = async (req, res) => {
         return response.success({
             res,
             message: "User found",
-            data: user
+            data: safePatient(user)
         });
 
     } catch (err) {
@@ -278,7 +268,7 @@ exports.getUserFullProfile = async (req, res) => {
     const requester = req.user;
 
     if (
-      requester.role !== "admin" &&
+      !["admin", "superadmin"].includes(requester.role) &&
       requester.id.toString() !== id.toString()
     ) {
       return response.error({
@@ -298,12 +288,7 @@ exports.getUserFullProfile = async (req, res) => {
       });
     }
 
-    const health = await Health.find({
-      $or: [
-        { userId: user._id },
-        { citizenId: String(user.citizenId) }
-      ]
-    }).sort({ createdAt: -1 });
+    const health = await Health.find(healthForUser(user)).sort({ createdAt: -1 });
 
     // 🔥 GROUP BY TYPE
     const grouped = {
@@ -323,7 +308,7 @@ exports.getUserFullProfile = async (req, res) => {
       res,
       message: "User profile fetched",
       data: {
-        user,
+        user: safePatient(user),
         health: grouped
       }
     });

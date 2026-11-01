@@ -1,0 +1,60 @@
+{
+  "source": "https://www.rama.mahidol.ac.th/cardio_vascular_risk/thai_cv_risk_score/scripts/formular.js",
+  "version": "2.5 (2021-04-23)",
+  "fixtures": [
+    {
+      "age": 35,
+      "smoke": 0,
+      "dm": 0,
+      "sbp": 120,
+      "sex": 0,
+      "tc": 180,
+      "percent": 0.9799426385415089
+    },
+    {
+      "age": 50,
+      "smoke": 0,
+      "dm": 0,
+      "sbp": 120,
+      "sex": 1,
+      "tc": 200,
+      "percent": 5.071261491901868
+    },
+    {
+      "age": 60,
+      "smoke": 1,
+      "dm": 1,
+      "sbp": 160,
+      "sex": 1,
+      "tc": 240,
+      "percent": 59.53661292129713
+    },
+    {
+      "age": 70,
+      "smoke": 1,
+      "dm": 1,
+      "sbp": 220,
+      "sex": 0,
+      "tc": 280,
+      "percent": 99.47582735992006
+    },
+    {
+      "age": 45,
+      "smoke": 0,
+      "dm": 1,
+      "sbp": 140,
+      "sex": 0,
+      "tc": 220,
+      "percent": 7.152225788164223
+    },
+    {
+      "age": 55,
+      "smoke": 1,
+      "dm": 0,
+      "sbp": 150,
+      "sex": 1,
+      "tc": 200,
+      "percent": 19.960375304611933
+    }
+  ]
+}

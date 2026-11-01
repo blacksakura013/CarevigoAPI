@@ -3,6 +3,8 @@
 // ======================================
 
 const jwt = require("jsonwebtoken");
+const ids = require("./internalIds.service");
+const { credentialVersion } = require("../utils/adminCredentials");
 
 // ======================================
 // GENERATE TOKEN PAIR
@@ -19,6 +21,10 @@ exports.generateTokenPair = (payload) => {
     role: payload.role || "admin",
     type: payload.type || "admin",
   };
+  if (tokenPayload.type === "admin") tokenPayload.tokenVersion = credentialVersion(payload);
+  if (payload.internalId !== undefined) {
+    tokenPayload.internalId = ids.toInternalId(payload.internalId).toString();
+  }
 
   const accessToken = jwt.sign(
     tokenPayload,

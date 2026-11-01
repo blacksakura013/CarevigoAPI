@@ -3,6 +3,7 @@
 // ======================================
 
 const mongoose = require("mongoose");
+const internalIdsPlugin = require("./plugins/internalIds.plugin");
 
 const AdminSchema = new mongoose.Schema(
   {
@@ -18,6 +19,12 @@ const AdminSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+
+    tokenVersion: { type: Number, default: 0, min: 0, max: Number.MAX_SAFE_INTEGER,
+      validate: Number.isSafeInteger },
+    passwordResetTokenHash: { type: String, select: false },
+    passwordResetExpiresAt: { type: Date, select: false },
+    passwordResetRequestedAt: { type: Date, select: false },
 
     role: {
       type: String,
@@ -39,4 +46,7 @@ const AdminSchema = new mongoose.Schema(
   }
 );
 
+AdminSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
+
+AdminSchema.plugin(internalIdsPlugin, { namespace: "Admin" });
 module.exports = mongoose.model("Admin", AdminSchema);

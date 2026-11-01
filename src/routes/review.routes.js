@@ -1,0 +1,13 @@
+const router = require("express").Router();
+const controller = require("../controllers/review.controller");
+const auth = require("../middleware/auth.middleware");
+const { requireStaff } = require("../middleware/access.middleware");
+const rateLimit = require("express-rate-limit");
+const tokenLimit = rateLimit({ windowMs: 60000, max: 60, standardHeaders: true, legacyHeaders: false });
+router.get("/email", tokenLimit, controller.emailInfo);
+router.post("/email", tokenLimit, controller.emailDecision);
+router.use(auth, requireStaff);
+router.get("/settings", controller.settings);
+router.get("/", controller.list);
+router.post("/decision", controller.decision);
+module.exports = router;
