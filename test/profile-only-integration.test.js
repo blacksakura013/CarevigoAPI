@@ -204,4 +204,67 @@ describe("profile-only guest submissions keep review and audit without fictional
     const id = citizenId(), noConsent = await h.newClient().request("/public/submissions", { anonymous: true, method: "POST", body: h.guestPayload(id, { records: [], agreements: undefined }) });
     assertStatus(noConsent, 422); assert.equal(await h.models.Submission.countDocuments({ citizenId: id }), 0);
   });
+
+  test("a profile request that persists after confirmation is excluded from the original review snapshot", async t => {
+    const tag = `DelayedSnapshot-${randomUUID()}`;
+    await submit({ profile: profile({ firstName: tag }) });
+    const payload = h.guestPayload(citizenId(), { records: [], profile: profile({ firstName: tag }) });
+    const originalCreate = h.models.Submission.create;
+    let began, release, pending;
+    const started = new Promise(resolve => { began = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    t.mock.method(h.models.Submission, "create", async function (data, ...args) {
+      if (data.clientRequestId === payload.clientRequestId) { began(); await gate; }
+      return originalCreate.call(this, data, ...args);
+    });
+    try {
+      pending = h.newClient().request("/public/submissions", { anonymous: true, method: "POST", body: payload });
+      await started;
+      const preview = await staff.request(`/reviews?status=pending&search=${tag}`);
+      assertStatus(preview, 200); assert.equal(preview.body.total, 1);
+      await delay(10); release(); assertStatus(await pending, 202);
+      const late = await h.models.Submission.findOne({ clientRequestId: payload.clientRequestId });
+      await h.models.Submission.updateOne({ internalId: late.internalId }, { $set: { reviewDueAt: new Date(Date.now() + 86400000) } });
+      const unchanged = await staff.request(`/reviews?status=pending&search=${tag}&cutoff=${encodeURIComponent(preview.body.snapshotAt)}`);
+      assertStatus(unchanged, 200); assert.equal(unchanged.body.total, 1);
+      const approved = await staff.request("/reviews/decision", { method: "POST", body: {
+        all: true, filters: { status: "pending", search: tag }, cutoff: preview.body.snapshotAt, action: "approve",
+      } });
+      assertStatus(approved, 200); assert.equal(approved.body.data.changed, 1); assert.equal(approved.body.data.matched, 1);
+      assert.equal((await h.models.Submission.findById(late._id)).profileReviewStatus, "pending");
+    } finally { release(); if (pending) await pending; }
+  });
+
+  test("an interrupted profile ready-write remains outside snapshots until recovery and retains deadline audit without Health rows", async t => {
+    const tag = `InterruptedReady-${randomUUID()}`;
+    const payload = h.guestPayload(citizenId(), { records: [], profile: profile({ firstName: tag }) });
+    const originalUpdate = h.models.Submission.updateOne;
+    let failOnce = true;
+    t.mock.method(h.models.Submission, "updateOne", function (filter, update, ...args) {
+      if (failOnce && update.$set?.materialized === true) { failOnce = false; return Promise.reject(new Error("Isolated interrupted ready-write")); }
+      return originalUpdate.call(this, filter, update, ...args);
+    });
+    const received = await h.newClient().request("/public/submissions", { anonymous: true, method: "POST", body: payload });
+    assertStatus(received, 202);
+    let saved = await h.models.Submission.findById(received.body.data.submissionId);
+    assert.equal(saved.materialized, false);
+    await h.models.Submission.updateOne({ internalId: saved.internalId }, { $set: { reviewDueAt: new Date(Date.now() + 86400000) } });
+    const preview = await staff.request(`/reviews?status=all&search=${tag}`);
+    assertStatus(preview, 200); assert.equal(preview.body.total, 0);
+    await h.models.Submission.updateOne({ internalId: saved.internalId }, { $set: { reviewDueAt: new Date(Date.now() - 1000) } });
+    await h.review.approveOverdue();
+    saved = await h.models.Submission.findById(saved._id);
+    assert.equal(saved.profileReviewStatus, "approved"); assert.equal(saved.profileReviewHistory.length, 2);
+    assert.equal(saved.profileReviewHistory.at(-1).source, "automatic");
+    await delay(10); await h.review.runReviewWorker();
+    const recovered = await h.models.Submission.findById(saved._id);
+    assert.equal(recovered.materialized, true); assert.ok(recovered.profileMaterializedAt);
+    assert.equal(recovered.profileReviewHistory.length, 2);
+    const historical = await staff.request(`/reviews?status=all&search=${tag}&cutoff=${encodeURIComponent(preview.body.snapshotAt)}`);
+    assertStatus(historical, 200); assert.equal(historical.body.total, 0);
+    const ready = await staff.request(`/reviews?status=approved&search=${tag}`);
+    assertStatus(ready, 200); assert.equal(ready.body.total, 1);
+    assert.equal(ready.body.data[0].reviewHistory.length, 2);
+    assert.equal(await h.models.Health.countDocuments({ submissionKey: recovered.internalId }), 0);
+  });
 });

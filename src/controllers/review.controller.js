@@ -102,7 +102,7 @@ exports.settings = async (req, res) => {
       Health.countDocuments({ $or: [{ reviewStatus: "approved" }, { reviewStatus: { $exists: false } }] }),
       Health.countDocuments({ reviewStatus: "rejected" }),
       Outbox.aggregate([{ $group: { _id: "$status", total: { $sum: 1 } } }]),
-      ...["pending", "approved", "rejected"].map(profileReviewStatus => Submission.countDocuments({ profileOnly: true, profileReviewStatus })),
+      ...["pending", "approved", "rejected"].map(status => Submission.countDocuments(profileReviewFilter({ status }))),
     ]);
     const outbox = { pending: 0, sent: 0, failed: 0, expired: 0 };
     for (const job of jobs) outbox[job._id === "sending" ? "pending" : job._id] = (outbox[job._id === "sending" ? "pending" : job._id] || 0) + job.total;

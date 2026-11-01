@@ -64,7 +64,7 @@ exports.submit = async (req, res) => {
     const recordKeys = normalized.length ? await ids.allocateInternalIds("Health", normalized.length) : [];
     const data = { _id: id, internalId: await ids.allocateInternalId("Submission"), userId: user._id, userKey, citizenId, profile, legalAgreement,
       records: normalized.map((record, index) => ({ ...record, _id: new mongoose.Types.ObjectId(), internalId: recordKeys[index] })),
-      ...(normalized.length === 0 ? { profileOnly: true, profileReviewStatus: "pending", profileMaterializedAt: submittedAt,
+      ...(normalized.length === 0 ? { profileOnly: true, profileReviewStatus: "pending",
         profileReviewHistory: [{ at: submittedAt, status: "pending", from: null, to: "pending", source: "guest", reason: "ส่งข้อมูลส่วนตัวโดยไม่ระบุผลตรวจสุขภาพ" }] } : {}),
       clientRequestId, requestKeyHash, payloadHash,
       receiptHash: hashToken(tokenFor("submission-receipt", id, clientRequestId)),

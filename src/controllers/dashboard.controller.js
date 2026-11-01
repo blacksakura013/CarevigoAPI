@@ -21,8 +21,12 @@ const userJoinExpression = { $or: [
 // ===============================
 exports.summary = async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Reporting follows the Thai calendar day even when the server runs in UTC.
+    const bangkokOffset = 7 * 60 * 60 * 1000;
+    const bangkokNow = new Date(Date.now() + bangkokOffset);
+    const today = new Date(Date.UTC(
+      bangkokNow.getUTCFullYear(), bangkokNow.getUTCMonth(), bangkokNow.getUTCDate()
+    ) - bangkokOffset);
 
     const [
       totalUsers,
@@ -118,7 +122,8 @@ exports.usersAnalytics = async (req, res) => {
           _id: {
             $dateToString: {
               format: "%Y-%m-%d",
-              date: "$createdAt"
+              date: "$createdAt",
+              timezone: "Asia/Bangkok"
             }
           },
           users: { $sum: 1 }

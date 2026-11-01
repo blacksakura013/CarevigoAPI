@@ -315,6 +315,13 @@ Selected, mixed and all-filtered review decisions accept these IDs, preserve the
 confirmation snapshot, and append an atomic audit event exactly once. Queue
 pagination merges both entities in MongoDB; review settings counts include both,
 while clinical dashboard/history counts continue to count actual Health records.
+Dashboard "today" totals and user-registration date groups use Asia/Bangkok,
+independent of the server timezone; stored timestamps remain Gregorian UTC.
+The first successful profile ready-write uses MongoDB's current date after the
+Submission is durable. Queue snapshots and settings exclude an incomplete
+ready-write until recovery, so a delayed request cannot enter an already confirmed
+bulk-review snapshot. Recovery preserves an existing ready timestamp and any
+automatic-review audit; it never publishes extra Health records.
 Profile approval reviews the submitted snapshot and does not overwrite an existing
 official profile. Rejection retains the snapshot and audit. Authenticated profile
 editing and staff verification remain separate workflows.

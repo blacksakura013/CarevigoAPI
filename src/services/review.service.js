@@ -74,7 +74,13 @@ async function materializeSubmission(submission) {
       if (value !== undefined) await Health.updateOne({ $and: [identity, { [field]: { $exists: false } }] }, { $set: { [field]: value } });
     }
   }
-  await Submission.updateOne(reviewDocumentFilter(submission), { $set: { materialized: true } });
+  if (submission.profileOnly && submission.profileMaterializedAt === undefined) {
+    // Publish the profile review item only after its source is durable. MongoDB
+    // stamps this first ready-write itself, so an earlier in-flight submission
+    // cannot slip into a review snapshot confirmed before it became visible.
+    await Submission.updateOne({ $and: [reviewDocumentFilter(submission), { profileMaterializedAt: { $exists: false } }] },
+      { $set: { materialized: true }, $currentDate: { profileMaterializedAt: true } });
+  } else await Submission.updateOne(reviewDocumentFilter(submission), { $set: { materialized: true } });
 }
 
 async function prepareNotifications(submission) {

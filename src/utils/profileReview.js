@@ -10,7 +10,7 @@ function mapProfileFilter(value) {
 }
 
 function profileReviewFilter(filters = {}, cutoff) {
-  return { $and: [{ profileOnly: true }, mapProfileFilter(reviewFilter(filters, cutoff))] };
+  return { $and: [{ profileOnly: true, profileMaterializedAt: { $exists: true } }, mapProfileFilter(reviewFilter(filters, cutoff))] };
 }
 
 function profileReviewRow(submission, { privateFields = false } = {}) {
