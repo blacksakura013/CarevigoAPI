@@ -12,6 +12,7 @@ router.post("/submissions", guestLimit, submission.submit);
 router.get("/submissions/:id", guestLimit, submission.receipt);
 router.use(auth, requirePatientReady);
 
+router.get("/health/progress", ownCitizen("query"), require("../controllers/health.progress.controller").getProgress);
 router.post("/health", ownCitizen("body"), rateLimit, controller.submitHealth);
 router.get("/health", ownCitizen("query"), require("../middleware/review.middleware"), controller.getHealthByCitizen);
 

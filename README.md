@@ -33,6 +33,35 @@ isolated local MongoDB process. This requires a local `mongod` binary (set
 files or connect to the application's configured database. Deployment checks remain
 separate.
 
+## Health progress (authenticated)
+
+`GET /api/public/health/progress` requires an authenticated patient accessing
+their own `citizenId`, or authorized staff. It is read-only: it does not approve
+overdue submissions, refresh risk calculations, or send mail.
+
+Select a period with `days=30|90|365|all` (default `90`), or a paired Gregorian
+`from=YYYY-MM-DD&to=YYYY-MM-DD`. Date boundaries are inclusive calendar days in
+Asia/Bangkok; all responses identify their `asOf` cutoff. The recorded date is
+`submittedAt`, falling back to `createdAt`, and does not imply an actual test date.
+
+The `schemaVersion: 1` response separates full-period summaries from detail
+pagination. Summary counts include all review states. Comparisons use approved
+records, including legacy records without a review-status field. Pending,
+rejected and unknown statuses do not enter the trend. Each measurement has its
+own count, first, previous and latest sample across the complete selected period;
+the plotted series contains at most its latest 100 samples, with `hasEarlier`
+indicating a shorter plotted history. Missing optional readings are never zeroes.
+
+`reviewStatus=all|approved|pending|rejected` filters only detail records, with
+`page` and `limit` (default 20, maximum 50). It does not change the approved
+measurement comparisons. Detail records and latest approved records use a safe
+projection; account credentials, legal proofs and staff actor identifiers are
+omitted. Clinical values accept finite positive BSON int/double values; numeric
+identity fields retain their exact decimal-string JSON representation.
+
+`currentRisk` is the stored latest Thai CV assessment, independent of the selected
+period. It is not a CVD trajectory or a replacement for clinical follow-up.
+
 ## Internal 64-bit identifiers
 
 Users, admins, health records, submissions, and review email jobs have an additive
