@@ -158,18 +158,21 @@ test("member list rejects operator objects in filters", async () => {
 
 test("summary reports unique people separately from high-BMI record count", async (t) => {
   t.mock.method(User, "countDocuments", async () => 8);
-  t.mock.method(User, "aggregate", async () => [{ _id: { status: "calculated", level: "high" }, total: 2 }, { _id: {}, total: 6 }]);
-  t.mock.method(Health, "countDocuments", async filter => filter?.["cvdRisk.level"] ? 5 : 12);
-  t.mock.method(Health, "aggregate", async pipeline => {
+  t.mock.method(User, "aggregate", async () => [{ _id: "high", total: 2 }, { _id: "incomplete", total: 6 }]);
+  t.mock.method(Health, "aggregate", pipeline => {
+    if (pipeline[0].$set?._summaryRecordedAt) return Promise.resolve([
+      { total: 12, today: 3, approved: 8, pending: 2, rejected: 1, highRisk: 5 }
+    ]);
     assert.equal(pipeline[0].$match["cvdRisk.level"], "risk_high");
     assert.ok(pipeline.some(stage => stage.$group), "Count distinct people before counting rows");
-    return [{ total: 2 }];
+    const result = Promise.resolve([{ total: 2 }]); result.option = () => result; return result;
   });
   const res = await invoke(dashboardController.summary, {});
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.highRiskUsers, 2);
   assert.equal(res.body.data.highRiskRecords, 5);
   assert.equal(res.body.data.totalHealthRecords, 12);
+  assert.equal(res.body.data.unknownHealthRecords, 1);
   assert.equal(res.body.data.thaiCvRisk.high, 2);
   assert.equal(res.body.data.thaiCvRisk.incomplete, 6);
   assert.equal(res.body.data.thaiCvRisk.totalCalculated, 2);
@@ -178,8 +181,9 @@ test("summary reports unique people separately from high-BMI record count", asyn
 test("summary returns zero unique high-BMI users for an empty aggregate", async (t) => {
   t.mock.method(User, "countDocuments", async () => 0);
   t.mock.method(User, "aggregate", async () => []);
-  t.mock.method(Health, "countDocuments", async () => 0);
-  t.mock.method(Health, "aggregate", async () => []);
+  t.mock.method(Health, "aggregate", () => {
+    const result = Promise.resolve([]); result.option = () => result; return result;
+  });
   const res = await invoke(dashboardController.summary, {});
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.highRiskUsers, 0);

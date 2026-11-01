@@ -11,9 +11,9 @@ describe("staff dashboard health filtering covers the complete persisted record 
   skip: !ENABLED ? "Set CAREVIGO_WORKFLOW_INTEGRATION=1 for isolated real MongoDB tests" : !binary ? "No installed mongod" : false,
   concurrency: false, timeout: 180000,
 }, () => {
-  let h, staff, ann, riskOwner, alpha, zed, ownerA, ownerB, smallOwner, smallRecord;
+  let h, staff, ann, riskOwner, alpha, zed, ownerA, ownerB, smallOwner, smallRecord, statusOwner, dateOwner;
   let nextCitizen = 8400000000000;
-  const all = [], searched = [], scores = [], bmiRows = [];
+  const all = [], searched = [], scores = [], bmiRows = [], unknownRows = [], recordedOrder = [];
   const sameDate = new Date("2026-11-01T01:00:00Z");
   let legacyApproved, keyed, legacyOwner, dangling;
   const createUser = overrides => h.models.User.create({ citizenId: String(++nextCitizen), ...profile(), status: "active", isVerified: true, ...overrides });
@@ -47,7 +47,7 @@ describe("staff dashboard health filtering covers the complete persisted record 
     }
     for (const value of [null, -1, 101, NaN, Infinity, "12", true,
       Long.fromNumber(0), Long.fromNumber(10), Long.fromNumber(100),
-      Decimal128.fromString("0"), Decimal128.fromString("20.0000000000000000000000000001"), Decimal128.fromString("100")]) {
+      Decimal128.fromString("0"), Decimal128.fromString("20.0000000000000000000000000001"), Decimal128.fromString("100"), [5], [25]]) {
       const record = await row(riskOwner, { thaiCvRisk: { status: "calculated", score: 12 } });
       await h.models.Health.collection.updateOne({ _id: record._id }, { $set: { "thaiCvRisk.score": value } });
     }
@@ -69,6 +69,23 @@ describe("staff dashboard health filtering covers the complete persisted record 
     await h.models.Health.collection.updateOne({ _id: dangling._id }, { $set: { userKey: ownerB.internalId + 999999n } });
     smallOwner = await createUser({ internalId: 10n, firstName: "Small exact", lastName: "IDs" });
     smallRecord = await row(smallOwner, { internalId: 11n });
+    statusOwner = await createUser({ firstName: "Unknown status", lastName: "Separate" });
+    for (const reviewStatus of [null, "", "unrecognized", ["approved"]]) {
+      const record = await row(statusOwner);
+      await h.models.Health.collection.updateOne({ _id: record._id }, { $set: { reviewStatus } });
+      unknownRows.push(record);
+    }
+    await row(statusOwner, { reviewStatus: "approved" });
+    const missingStatus = await row(statusOwner);
+    await h.models.Health.collection.updateOne({ _id: missingStatus._id }, { $unset: { reviewStatus: 1 } });
+    dateOwner = await createUser({ firstName: "Clock", lastName: "RecordedOrder" });
+    const equalRisk = { status: "calculated", score: 12, level: "moderate" };
+    const laterSubmission = await row(dateOwner, { createdAt: new Date("2026-10-01T00:00:00Z"),
+      submittedAt: new Date("2026-11-02T01:00:00Z"), thaiCvRisk: equalRisk });
+    const earlierSubmission = await row(dateOwner, { createdAt: new Date("2026-11-03T00:00:00Z"),
+      submittedAt: new Date("2026-11-01T01:00:00Z"), thaiCvRisk: equalRisk });
+    const fallbackDate = await row(dateOwner, { createdAt: new Date("2026-11-01T12:00:00Z"), thaiCvRisk: equalRisk });
+    recordedOrder.push(laterSubmission, fallbackDate, earlierSubmission);
   });
   after(async () => {
     if (!h) return;
@@ -106,13 +123,30 @@ describe("staff dashboard health filtering covers the complete persisted record 
     }
   });
 
+  test("unknown review statuses stay separate from approved legacy rows and detail filtering preserves global totals", async () => {
+    const baseline = await get({ search: statusOwner.citizenId, limit: "100" });
+    const unknown = await get({ search: statusOwner.citizenId, reviewStatus: "unknown" });
+    assert.equal(baseline.total, 6); assert.equal(unknown.total, 4);
+    assert.deepEqual(unknown.data.records.map(record => record._id).sort(), ids(unknownRows).sort());
+    assert.equal(unknown.data.records.every(record => record.reviewStatus === "unknown"), true);
+    assert.deepEqual(unknown.data.summary, baseline.data.summary);
+    assert.equal(unknown.data.summaryScope, "all");
+    assert.equal(unknown.data.timeZone, "Asia/Bangkok");
+    assert.ok(Number.isFinite(Date.parse(unknown.data.asOf)));
+    const approved = await get({ search: statusOwner.citizenId, reviewStatus: "approved" });
+    assert.equal(approved.total, 2); assert.equal(approved.data.records.every(record => record.reviewStatus === "approved"), true);
+    assert.equal(approved.data.records.some(record => unknownRows.some(source => String(source._id) === record._id)), false);
+  });
+
   test("Thai CV filters use valid stored scores with exact10/20 boundaries instead of stale labels or BMI categories", async () => {
     for (const [riskLevel, expected] of [["low", scores.slice(0, 2)], ["moderate", scores.slice(2, 4)], ["high", scores.slice(4, 6)]]) {
       const result = await get({ search: "Risk [row]", riskLevel, limit: "100" });
       assert.equal(result.total, 2); assert.deepEqual(result.data.records.map(record => record._id).sort(), ids(expected).sort());
     }
     const unavailable = await get({ search: "Risk [row]", riskLevel: "unavailable", limit: "100" });
-    assert.equal(unavailable.total, 15); assert.equal(unavailable.data.records.some(record => ids(scores).includes(record._id)), false);
+    assert.equal(unavailable.total, 17); assert.equal(unavailable.data.records.some(record => ids(scores).includes(record._id)), false);
+    assert.equal(unavailable.data.records.some(record => Array.isArray(record.thaiCvRisk?.score) && record.thaiCvRisk.score[0] === 5), true);
+    assert.equal(unavailable.data.records.some(record => Array.isArray(record.thaiCvRisk?.score) && record.thaiCvRisk.score[0] === 25), true);
     const combined = await get({ search: "Risk [row]", type: "cholesterol", reviewStatus: "approved", riskLevel: "moderate", bmiLevel: "all", limit: "1" });
     assert.equal(combined.total, 2); assert.equal(combined.data.records.length, 1); assert.equal(combined.hasMore, true);
   });
@@ -122,7 +156,7 @@ describe("staff dashboard health filtering covers the complete persisted record 
       const result = await get({ search: "Risk [row]", sort, limit: "100" });
       const expected = sort === "risk_asc" ? scores : [...scores].reverse();
       assert.deepEqual(result.data.records.slice(0, 6).map(record => record._id), ids(expected));
-      assert.equal(result.data.records.length, 21);
+      assert.equal(result.data.records.length, 23);
       const first = await get({ search: "Risk [row]", sort, limit: "1", page: "1" });
       const second = await get({ search: "Risk [row]", sort, limit: "1", page: "2" });
       assert.equal(first.data.records[0]._id, String(expected[0]._id)); assert.equal(second.data.records[0]._id, String(expected[1]._id));
@@ -146,6 +180,18 @@ describe("staff dashboard health filtering covers the complete persisted record 
     }
     const beyond = await get({ search: "NameSortGroup", page: "4", limit: "1" });
     assert.equal(beyond.total, 3); assert.deepEqual(beyond.data.records, []); assert.equal(beyond.hasMore, false);
+  });
+
+  test("displayed recording date determines chronological order and name/risk ties even after delayed materialization", async () => {
+    for (const sort of ["newest", "oldest", "name", "risk_desc", "risk_asc"]) {
+      const result = await get({ search: dateOwner.citizenId, sort, limit: "100" });
+      assert.equal(result.total, 3);
+      const expected = sort === "oldest" ? [...recordedOrder].reverse() : recordedOrder;
+      assert.deepEqual(result.data.records.map(record => record._id), ids(expected));
+      assert.equal(result.data.records.some(record => Object.hasOwn(record, "_dashboardRecordedAt")), false);
+      const page = await get({ search: dateOwner.citizenId, sort, page: "2", limit: "1" });
+      assert.equal(page.data.records[0]._id, String(recordedOrder[1]._id)); assert.equal(page.total, 3);
+    }
   });
 
   test("numeric ownership outranks conflicting legacy identity, while missing numeric links retain ObjectId owners and exact ID strings", async () => {

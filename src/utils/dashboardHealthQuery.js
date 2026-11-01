@@ -1,6 +1,11 @@
 const KEYS = new Set(["page", "limit", "type", "search", "reviewStatus", "riskLevel", "bmiLevel", "sort"]);
 const TYPES = ["all", "blood_pressure", "sugar", "cholesterol", "bmi"];
 const BMI_LEVELS = ["all", "underweight", "normal", "risk_low", "risk_medium", "risk_high"];
+const REVIEW_STATUSES = ["approved", "pending", "rejected"];
+const normalizedReviewStatus = { $cond: [
+  { $eq: [{ $type: "$reviewStatus" }, "missing"] }, "approved",
+  { $cond: [{ $in: ["$reviewStatus", REVIEW_STATUSES] }, "$reviewStatus", "unknown"] }
+] };
 
 function invalid() {
   const error = new Error("ตัวกรองหรือเลขหน้ารายการสุขภาพไม่ถูกต้อง");
@@ -20,18 +25,16 @@ function choice(value, allowed, fallback) {
   return value;
 }
 
-const validRisk = {
-  "thaiCvRisk.status": "calculated",
-  // BSON Long/Decimal128 do not cross the JSON boundary as Number values.
-  // Do not coerce them: decimal rounding could change a clinical threshold.
-  "thaiCvRisk.score": { $type: ["double", "int"], $gte: 0, $lte: 100 },
-};
+// BSON Long/Decimal128 do not cross the JSON boundary as Number values.
+// Expression type checks also reject arrays that ordinary query $type/ranges
+// could match by an element. Filtering and sorting must agree on availability.
 const validRiskExpression = { $and: [
   { $eq: ["$thaiCvRisk.status", "calculated"] },
   { $in: [{ $type: "$thaiCvRisk.score" }, ["double", "int"]] },
   { $gte: ["$thaiCvRisk.score", 0] },
   { $lte: ["$thaiCvRisk.score", 100] },
 ] };
+const validRisk = { $expr: validRiskExpression };
 
 function dashboardHealthQuery(query = {}) {
   if (!query || typeof query !== "object" || Array.isArray(query) || Object.keys(query).some(key => !KEYS.has(key))) return invalid();
@@ -39,7 +42,7 @@ function dashboardHealthQuery(query = {}) {
   const skip = (page - 1) * limit;
   if (!Number.isSafeInteger(skip)) return invalid();
   const type = choice(query.type, TYPES, "all");
-  const reviewStatus = choice(query.reviewStatus, ["all", "pending", "approved", "rejected"], "all");
+  const reviewStatus = choice(query.reviewStatus, ["all", ...REVIEW_STATUSES, "unknown"], "all");
   const riskLevel = choice(query.riskLevel, ["all", "low", "moderate", "high", "unavailable"], "all");
   const bmiLevel = choice(query.bmiLevel, BMI_LEVELS, "all");
   const sort = choice(query.sort, ["newest", "oldest", "name", "risk_desc", "risk_asc"], "newest");
@@ -48,8 +51,11 @@ function dashboardHealthQuery(query = {}) {
   const regex = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const filters = [];
   if (type !== "all") filters.push({ type });
-  if (reviewStatus === "approved") filters.push({ $or: [{ reviewStatus: "approved" }, { reviewStatus: { $exists: false } }] });
-  else if (reviewStatus !== "all") filters.push({ reviewStatus });
+  if (reviewStatus === "approved") filters.push({ $or: [{ $expr: { $eq: ["$reviewStatus", "approved"] } }, { reviewStatus: { $exists: false } }] });
+  else if (reviewStatus === "unknown") filters.push({ $nor: [
+    { $expr: { $in: ["$reviewStatus", REVIEW_STATUSES] } }, { reviewStatus: { $exists: false } }
+  ] });
+  else if (reviewStatus !== "all") filters.push({ $expr: { $eq: ["$reviewStatus", reviewStatus] } });
   if (bmiLevel !== "all") filters.push({ "cvdRisk.level": bmiLevel });
   if (riskLevel === "unavailable") filters.push({ $nor: [validRisk] });
   else if (riskLevel !== "all") {
@@ -78,20 +84,20 @@ function dashboardHealthPipeline(query, userCollection) {
     ...["user.firstName", "user.lastName", "user.citizenId", "user.province", "_fullName"].map(field => ({ [field]: { $regex: query.regex, $options: "i" } })),
   ] } });
 
-  let sort = query.sort === "oldest" ? { createdAt: 1, _id: 1 } : { createdAt: -1, _id: -1 };
-  const rows = [];
-  if (query.sort === "name") sort = { _fullName: 1, createdAt: -1, _id: -1 };
+  let sort = query.sort === "oldest" ? { _dashboardRecordedAt: 1, _id: 1 } : { _dashboardRecordedAt: -1, _id: -1 };
+  const rows = [{ $set: { _dashboardRecordedAt: { $ifNull: ["$submittedAt", "$createdAt"] } } }];
+  if (query.sort === "name") sort = { _fullName: 1, _dashboardRecordedAt: -1, _id: -1 };
   if (["risk_desc", "risk_asc"].includes(query.sort)) {
     rows.push({ $set: { _riskMissing: { $cond: [validRiskExpression, 0, 1] },
       _riskScore: { $cond: [validRiskExpression, "$thaiCvRisk.score", null] } } });
-    sort = { _riskMissing: 1, _riskScore: query.sort === "risk_desc" ? -1 : 1, createdAt: -1, _id: -1 };
+    sort = { _riskMissing: 1, _riskScore: query.sort === "risk_desc" ? -1 : 1, _dashboardRecordedAt: -1, _id: -1 };
   }
   rows.push({ $sort: sort }, { $skip: query.skip }, { $limit: query.limit });
   // A normal page needs only its own user joins. Search/name order must join
   // before pagination so matching and totals cover the whole result set.
   if (!joinBeforePage) rows.push(...join);
   rows.push({ $project: { _id: 1, type: 1, value: 1, bmi: 1, cvdRisk: 1, thaiCvRisk: 1,
-    reviewStatus: { $ifNull: ["$reviewStatus", "approved"] }, reviewHistory: { $ifNull: ["$reviewHistory", []] },
+    reviewStatus: normalizedReviewStatus, reviewHistory: { $ifNull: ["$reviewHistory", []] },
     submittedProfile: 1, submittedAt: 1, reviewDueAt: 1, reviewedAt: 1, reviewSource: 1, reviewReason: 1,
     source: 1, createdAt: 1, internalId: 1, userKey: 1, user: 1 } });
   return [...beforePage, { $facet: { total: [{ $count: "value" }], records: rows } }];

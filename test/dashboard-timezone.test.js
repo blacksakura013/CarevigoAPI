@@ -25,21 +25,42 @@ for (const scenario of [
       else process.env.TZ = originalTimezone;
     });
     t.mock.timers.enable({ apis: ["Date"], now: Date.parse(scenario.now) });
-    const dayStarts = [];
+    const registrationFilters = [], healthPipelines = [];
     const count = async (filter) => {
-      if (filter?.createdAt?.$gte) dayStarts.push(filter.createdAt.$gte.toISOString());
+      if (filter?.createdAt?.$gte) registrationFilters.push(filter);
       return 0;
     };
     t.mock.method(User, "countDocuments", count);
     t.mock.method(Health, "countDocuments", count);
     t.mock.method(User, "aggregate", async () => []);
-    t.mock.method(Health, "aggregate", async () => []);
+    t.mock.method(Health, "aggregate", value => {
+      healthPipelines.push(value);
+      const result = Promise.resolve([]);
+      result.option = () => result;
+      return result;
+    });
     const res = responseRecorder();
     await dashboard.summary({}, res);
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(dayStarts, [scenario.start, scenario.start]);
+    assert.equal(registrationFilters.length, 1);
+    assert.equal(registrationFilters[0].createdAt.$gte.toISOString(), scenario.start);
+    assert.equal(registrationFilters[0].createdAt.$lte.toISOString(), new Date(scenario.now).toISOString());
+    assert.deepEqual(registrationFilters[0].$expr, { $eq: [{ $type: "$createdAt" }, "date"] });
+    const health = healthPipelines.find(pipeline => pipeline[0].$set?._summaryRecordedAt);
+    assert.deepEqual(health[0].$set._summaryRecordedAt, { $ifNull: ["$submittedAt", "$createdAt"] });
+    const conditions = health[1].$group.today.$sum.$cond[0].$and;
+    assert.deepEqual(conditions[0], { $eq: [{ $type: "$_summaryRecordedAt" }, "date"] });
+    assert.equal(conditions[1].$gte[1].toISOString(), scenario.start);
+    assert.equal(conditions[2].$lte[1].toISOString(), new Date(scenario.now).toISOString());
     assert.equal(res.body.data.todayHealthRecords, 0);
     assert.equal(res.body.data.todayNewUsers, 0);
+    assert.equal(res.body.data.asOf, new Date(scenario.now).toISOString());
+    assert.equal(res.body.data.timeZone, "Asia/Bangkok");
+    assert.equal(res.body.data.schemaVersion, 2);
+    assert.equal(res.body.data.pendingHealthRecords, 0);
+    assert.equal(res.body.data.approvedHealthRecords, 0);
+    assert.equal(res.body.data.rejectedHealthRecords, 0);
+    assert.equal(res.body.data.unknownHealthRecords, 0);
   });
 }
 

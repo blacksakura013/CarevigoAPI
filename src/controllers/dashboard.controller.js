@@ -23,8 +23,9 @@ const userJoinExpression = { $or: [
 exports.summary = async (req, res) => {
   try {
     // Reporting follows the Thai calendar day even when the server runs in UTC.
+    const asOf = new Date(Date.now());
     const bangkokOffset = 7 * 60 * 60 * 1000;
-    const bangkokNow = new Date(Date.now() + bangkokOffset);
+    const bangkokNow = new Date(asOf.getTime() + bangkokOffset);
     const today = new Date(Date.UTC(
       bangkokNow.getUTCFullYear(), bangkokNow.getUTCMonth(), bangkokNow.getUTCDate()
     ) - bangkokOffset);
@@ -33,10 +34,8 @@ exports.summary = async (req, res) => {
       totalUsers,
       verifiedUsers,
       pendingUsers,
-      totalHealthRecords,
-      todayHealthRecords,
+      healthCounts,
       todayNewUsers,
-      highRiskRecords,
       highRiskUserCounts,
       thaiCvRiskGroups
     ] = await Promise.all([
@@ -50,18 +49,34 @@ exports.summary = async (req, res) => {
         status: "pending"
       }),
 
-      Health.countDocuments(),
-
-      Health.countDocuments({
-        createdAt: { $gte: today }
-      }),
+      // Keep all review buckets and the unfiltered total in the same bounded
+      // aggregation. Missing legacy reviewStatus means approved; corrupt/null
+      // statuses remain unknown rather than silently entering clinical totals.
+      Health.aggregate([
+        { $set: {
+          _summaryRecordedAt: { $ifNull: ["$submittedAt", "$createdAt"] },
+          _summaryReviewStatus: { $cond: [
+            { $eq: [{ $type: "$reviewStatus" }, "missing"] }, "approved", "$reviewStatus"
+          ] }
+        } },
+        { $group: {
+          _id: null,
+          total: { $sum: 1 },
+          today: { $sum: { $cond: [{ $and: [
+            { $eq: [{ $type: "$_summaryRecordedAt" }, "date"] },
+            { $gte: ["$_summaryRecordedAt", today] },
+            { $lte: ["$_summaryRecordedAt", asOf] }
+          ] }, 1, 0] } },
+          approved: { $sum: { $cond: [{ $eq: ["$_summaryReviewStatus", "approved"] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ["$_summaryReviewStatus", "pending"] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ["$_summaryReviewStatus", "rejected"] }, 1, 0] } },
+          highRisk: { $sum: { $cond: [{ $eq: ["$cvdRisk.level", "risk_high"] }, 1, 0] } }
+        } }
+      ]),
 
       User.countDocuments({
-        createdAt: { $gte: today }
-      }),
-
-      Health.countDocuments({
-        "cvdRisk.level": "risk_high"
+        createdAt: { $gte: today, $lte: asOf },
+        $expr: { $eq: [{ $type: "$createdAt" }, "date"] }
       }),
 
       Health.aggregate([
@@ -73,18 +88,31 @@ exports.summary = async (req, res) => {
           { $ifNull: ["$userKey", { $ifNull: ["$citizenId", "$userId"] }] }] } } },
         { $match: { _id: { $nin: [null, ""] } } },
         { $count: "total" }
-      ]),
+      ]).option({ useBigInt64: true }),
       User.aggregate([
-        { $group: { _id: { status: "$thaiCvRisk.status", level: "$thaiCvRisk.level" }, total: { $sum: 1 } } }
+        // Group by the actual finite BSON number, not a stale stored label.
+        // BSON int64/decimal values are deliberately unavailable as clinical
+        // scores, even when their driver representation could be coerced.
+        { $group: { _id: { $switch: { branches: [
+          { case: { $eq: ["$thaiCvRisk.status", "ineligible"] }, then: "ineligible" },
+          { case: { $and: [
+            { $eq: ["$thaiCvRisk.status", "calculated"] },
+            { $in: [{ $type: "$thaiCvRisk.score" }, ["double", "int"]] },
+            { $gte: ["$thaiCvRisk.score", 0] },
+            { $lte: ["$thaiCvRisk.score", 100] }
+          ] }, then: { $cond: [{ $lt: ["$thaiCvRisk.score", 10] }, "low",
+            { $cond: [{ $lte: ["$thaiCvRisk.score", 20] }, "moderate", "high"] }] } }
+        ], default: "incomplete" } }, total: { $sum: 1 } } }
       ])
     ]);
+    const health = healthCounts[0] || { total: 0, today: 0, approved: 0, pending: 0, rejected: 0, highRisk: 0 };
     const thaiCvRisk = { low: 0, moderate: 0, high: 0, incomplete: 0, ineligible: 0, totalCalculated: 0 };
     for (const group of thaiCvRiskGroups) {
-      const { status, level } = group._id || {};
-      if (status === "calculated" && ["low", "moderate", "high"].includes(level)) {
+      const level = group._id;
+      if (["low", "moderate", "high"].includes(level)) {
         thaiCvRisk[level] += group.total;
         thaiCvRisk.totalCalculated += group.total;
-      } else if (status === "ineligible") thaiCvRisk.ineligible += group.total;
+      } else if (level === "ineligible") thaiCvRisk.ineligible += group.total;
       else thaiCvRisk.incomplete += group.total;
     }
 
@@ -92,14 +120,21 @@ exports.summary = async (req, res) => {
       res,
       message: "Dashboard summary fetched",
       data: {
+        schemaVersion: 2,
+        asOf: asOf.toISOString(),
+        timeZone: "Asia/Bangkok",
         totalUsers,
         verifiedUsers,
         pendingUsers,
-        totalHealthRecords,
-        todayHealthRecords,
+        totalHealthRecords: health.total,
+        todayHealthRecords: health.today,
+        approvedHealthRecords: health.approved,
+        pendingHealthRecords: health.pending,
+        rejectedHealthRecords: health.rejected,
+        unknownHealthRecords: health.total - health.approved - health.pending - health.rejected,
         todayNewUsers,
         highRiskUsers: highRiskUserCounts[0]?.total || 0,
-        highRiskRecords,
+        highRiskRecords: health.highRisk,
         thaiCvRisk
       }
     });
@@ -107,7 +142,7 @@ exports.summary = async (req, res) => {
   } catch (err) {
     return response.error({
       res,
-      message: err.message
+      message: "โหลดภาพรวมแดชบอร์ดไม่สำเร็จ กรุณาลองอีกครั้ง"
     });
   }
 };
@@ -154,6 +189,7 @@ exports.usersAnalytics = async (req, res) => {
 // ===============================
 exports.healthAnalytics = async (req, res) => {
   try {
+    const asOf = new Date(Date.now()).toISOString();
     const query = dashboardHealthQuery(req.query);
     const [grouped, result] = await Promise.all([
       Health.aggregate([{ $group: { _id: "$type", total: { $sum: 1 } } }]),
@@ -167,7 +203,7 @@ exports.healthAnalytics = async (req, res) => {
       res,
       message: "Health analytics fetched",
       total: totals[0]?.value || 0, page: query.page, limit: query.limit,
-      data: { summary, summaryScope: "all", records }
+      data: { summary, summaryScope: "all", records, asOf, timeZone: "Asia/Bangkok" }
     });
   } catch (err) {
     return response.error({ res, statusCode: err.code === "INVALID_DASHBOARD_QUERY" ? 400 : 500,

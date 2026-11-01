@@ -467,7 +467,27 @@ The service processes bounded batches of 100 until the matching snapshot is comp
 `createdAt`/`submittedAt` retain original clinical ordering. The response reports
 `changed`, `skipped`, and `matched`. Queue status filters are `pending`, `approved`,
 `rejected`, and `all`; legacy records without a review state count as approved.
-Dashboard health also accepts `reviewStatus` with those values.
+Dashboard health also accepts `reviewStatus` with those values and `unknown`.
+
+### Staff dashboard overview
+
+`GET /api/dashboard/summary` remains an active-staff-only, read-only overview.
+Its `data.schemaVersion: 2` adds `approvedHealthRecords`, `pendingHealthRecords`,
+`rejectedHealthRecords` and `unknownHealthRecords`; together they partition the
+unfiltered `totalHealthRecords`. A missing legacy review field means approved;
+null, empty, malformed and unrecognized fields mean unknown. These are Health
+record counts, so profile-only review requests are not included in these buckets.
+Existing member, record and legacy high-BMI counters remain available.
+
+`asOf` is the ISO timestamp captured when the read begins and `timeZone` is
+`Asia/Bangkok`. Today includes valid BSON dates from Thai midnight through
+`asOf`, including both endpoints and excluding future/malformed timestamps.
+Health activity uses `submittedAt` with `createdAt` fallback; member registration
+uses `createdAt`. All-time totals retain all persisted records. The Thai CV user
+groups use finite BSON double/int scores from0 to100 with calculated status,
+below10 /10 through20 /above20 boundaries, independent of stored level labels.
+Ineligible status stays ineligible; other unavailable scores are incomplete.
+Reading the overview never approves records or refreshes stored risk.
 
 ### Staff dashboard record queries
 
@@ -478,7 +498,7 @@ Dashboard health also accepts `reviewStatus` with those values.
 | `page`, `limit` | Positive integers; limit at most100 |
 | `type` | `all`, `blood_pressure`, `sugar`, `cholesterol`, `bmi` |
 | `search` | Bounded literal text matching joined member name, citizen ID or province |
-| `reviewStatus` | `all`, `pending`, `approved`, `rejected` |
+| `reviewStatus` | `all`, `pending`, `approved`, `rejected`, `unknown` |
 | `riskLevel` | `all`, `low`, `moderate`, `high`, `unavailable` |
 | `bmiLevel` | `all`, `underweight`, `normal`, `risk_low`, `risk_medium`, `risk_high` |
 | `sort` | `newest`, `oldest`, `name`, `risk_desc`, `risk_asc` |
@@ -490,6 +510,9 @@ below10,10 through20, above20 percent; invalid/missing results are unavailable,
 not zero. Legacy BMI
 groups remain a separate filter. Sorts use an ID tie-breaker; unavailable CV
 scores remain last in either score direction.
+Chronological order and the date tie-breaker for names/risks use `submittedAt`
+with `createdAt` fallback, so delayed materialization does not make an old
+submission appear to be the newest recorded result.
 
 The response's `total`, `page`, `limit` and `hasMore` describe the filtered record
 set. `data.records` contains that page; `data.summary` is the global record
@@ -497,6 +520,10 @@ count per type, including all review states, with `data.summaryScope: "all"`.
 Thus changing a filter does not change the meaning of the four dashboard cards.
 Legacy records without reviewStatus are included in approved queries. Numeric
 userKey ownership stays authoritative and IDs stay decimal strings in JSON.
+Null/empty/unrecognized review states remain `unknown`, including in the
+projection and the explicit unknown filter; they are never shown as approved.
+`data.asOf` and `data.timeZone` identify when the query began, rather than a
+measurement date, and do not change the all-record summary scope.
 The endpoint retains its existing active staff authorization; no public patient
 lookup or additional health write is introduced.
 
