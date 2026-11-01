@@ -8,6 +8,9 @@ const authMiddleware = require("../middleware/auth.middleware");
 const { requireStaff } = require("../middleware/access.middleware");
 router.use(authMiddleware, requireStaff);
 
+// Read-only cohort reporting does not process reviews or refresh risk scores.
+router.get("/cohorts", require("../controllers/admin.cohort.controller").getCohorts);
+
 // ===============================
 // 📊 DASHBOARD SUMMARY
 // ===============================

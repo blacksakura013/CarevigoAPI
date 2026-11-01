@@ -62,6 +62,62 @@ identity fields retain their exact decimal-string JSON representation.
 `currentRisk` is the stored latest Thai CV assessment, independent of the selected
 period. It is not a CVD trajectory or a replacement for clinical follow-up.
 
+## Staff cohort reports (authenticated)
+
+`GET /api/dashboard/cohorts` requires an active admin or superadmin session.
+It is read-only: it does not approve pending records, refresh CV risk, run review
+workers or send mail. Responses use `Cache-Control: no-store`.
+
+The strict query accepts paired Gregorian `from`/`to` dates (inclusive Bangkok
+calendar days, at most 366 days, ending no later than today), `disease`, literal
+`search` (name, full name, citizen ID or province; maximum 100 characters),
+`activity=all|recorded|none`, `page` and `limit` (default 20, maximum 50).
+Omitting dates selects the current Thai calendar month through today. Records
+use `submittedAt` when present, otherwise `createdAt`; invalid timestamps and
+timestamps after the response's `asOf` instant are excluded. Profiles must have
+a valid registration `createdAt` no later than the selected end/asOf.
+
+`data.schemaVersion=1` includes `range`, normalized `filters`, `summary`,
+`diseases`, bounded `timeline`, paginated `people`, and `pagination`.
+`range.bucket` is `day` for up to 92 days and `month` otherwise, with timeline
+dates respectively `YYYY-MM-DD` and `YYYY-MM`. Timeline gaps
+contain zero counts only; reports do not invent clinical measurements.
+The summary distinguishes unique people from record totals, with approval status
+and `byType` counts. `cohortPeople`, `withRecords` and `withoutRecords` describe
+the selected disease/search cohort before the activity filter; `people` and all
+record totals describe the displayed cohort after it. Pagination does not change
+aggregates. Missing legacy review status is approved; null/unrecognized status
+is unknown. Non-submitters remain visible under `activity=all|none`.
+
+Disease codes are `all`, `diabetes`, `hypertension`, `heart`, `stroke`, `cancer`,
+`dyslipidemia`, `other`, `none` and `unknown`. Aliases and cancer prefixes map
+to current reported profile groups, with duplicate aliases counted once per
+person and overlapping groups allowed. A nonempty reported disease array counts
+even when its confirmation flag is false; `none` requires a valid all-string
+array that normalizes to empty and an explicit true confirmation. Missing/invalid disease data remains
+unknown. These groups are not historical diagnoses or inferred from measurements.
+`diseaseScope=current-profile-reported` makes this scope explicit. Distribution
+cards ignore the selected disease for drill-down, respect search/activity, and
+declare `distributionScope=search-and-activity-current-profile`.
+
+Joins use exact BSON int64 `userKey`/`internalId` links first. An existing numeric
+link to another or missing person never falls back. When `userKey` is absent,
+an ObjectId `userId` is authoritative; citizen ID fallback is used only without
+an ObjectId link. This prevents contradictory legacy links from counting a
+record for two people. IDs serialize as decimal strings; missing legacy profile
+IDs are null. People contain names, province, reported groups, record counts and
+`latestApprovedRecords`: at most one most recent approved record per known
+category within the selected range. These four safe records include the recorded
+date, positive finite BSON double/int measurements and optional submitted DOB/sex.
+Missing, string, int64, Decimal128 and nonfinite clinical values remain unavailable;
+pending/rejected records never supply these readings. This is a latest category
+record, not a per-measurement trend or a new diagnosis. Account secrets, contact
+details, private profile fields and review actors are excluded.
+
+The isolated real-Mongo regression cases are
+`test/admin-cohort-integration.test.js`; enable them with
+`CAREVIGO_WORKFLOW_INTEGRATION=1`. Query boundary tests run in the normal suite.
+
 ## Internal 64-bit identifiers
 
 Users, admins, health records, submissions, and review email jobs have an additive
