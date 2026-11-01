@@ -220,6 +220,7 @@ and pagination metadata (`total`, `page`, `limit`, `hasMore`) when applicable.
 | `POST /api/public/health` | Staff or the matching ready patient; existing registered patient only |
 | `GET /api/public/health` | Staff or the matching ready patient; `citizenId`, optional `type`, `page`, `limit` |
 | `GET /api/dashboard/*` | Staff only |
+| `GET /api/public/patient-profile?citizenId=...` | Anonymous personal-field prefill from an active verified official profile; five fields only |
 | `POST /api/public/submissions` | Guest write-only health batch; no existing profile lookup |
 | `GET /api/public/submissions/:id?token=...` | Opaque receipt token scoped to that submission only |
 | `GET /api/reviews` | Staff review queue and completed history |
@@ -231,7 +232,7 @@ and pagination metadata (`total`, `page`, `limit`, `hasMore`) when applicable.
 Member search treats text literally and checks names, full name, citizen ID,
 phone, and province. `riskLevel` accepts `low`, `moderate`, `high`, or `unavailable`.
 Member/history pages are stable newest-first with a maximum size of 100. The
-legacy word `public` in the health route does not grant public access. A temporary
+legacy word `public` in the health route does not grant public health-history access. A temporary
 account blocked from data routes receives HTTP 403 with `code: PASSWORD_CHANGE_REQUIRED`.
 LINE profile commands direct users to sign in until verified account linking exists.
 
@@ -284,6 +285,20 @@ by executing the official calculator function and require no network access in t
 ## Guest submissions, review, and retained history
 
 Guest submission is deliberately separate from private profile/history reads.
+`GET /api/public/patient-profile?citizenId=...` provides the explicitly public
+prefill: an exact 13-digit ID returns `{ firstName, lastName, gender, birthDate,
+phone }` in `data`, or `data: null` when no active verified official profile
+matches. A login account is not required. This route uses an explicit database
+projection and never returns citizen/internal IDs, email, account/security fields,
+smoking, disease history, risk, legal evidence or measurements. Pending/rejected
+profiles and submitted guest snapshots are excluded. Only one scalar `citizenId`
+query parameter is accepted; extra parameters/operators/arrays return 400. The
+lookup has its own 10-per-IP-per-minute limit, separate from guest submission,
+and every response (including errors/429) uses `Cache-Control: no-store`. Request
+logs omit the query. Other profile/search/history routes keep their authentication
+and ownership checks. Clients normalize stored Gregorian birth dates and gender
+labels before mapping the five fields into the form; clinical fields stay empty.
+
 `POST /api/public/submissions` accepts `{ citizenId, profile, records, clientRequestId? }`.
 The profile uses the same allowlist as patient editing; security fields are ignored.
 Zero to four unique health types are allowed; health measurements are optional.
