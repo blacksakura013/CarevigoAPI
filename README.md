@@ -286,18 +286,46 @@ by executing the official calculator function and require no network access in t
 Guest submission is deliberately separate from private profile/history reads.
 `POST /api/public/submissions` accepts `{ citizenId, profile, records, clientRequestId? }`.
 The profile uses the same allowlist as patient editing; security fields are ignored.
-One to four unique health types are allowed. The optional `clientRequestId` is a UUID:
+Zero to four unique health types are allowed; health measurements are optional.
+An empty `records: []` saves a profile-only submission with its explicit consent.
+The optional `clientRequestId` is a UUID:
 reuse it with identical data after an uncertain network result to recover the same
 submission/receipt. Reusing it with changed data returns HTTP 409. A guest can
 create an unverified pending profile, but can never overwrite an existing profile.
 The submitted demographic/disease information remains an immutable record snapshot.
 
-HTTP 202 data contains `submissionId`, stable `recordIds`, `reviewStatus: pending`,
-`reviewDueAt`, `receiptToken`, and `clientRequestId`. Receipt reads return only that
+HTTP 202 data contains `submissionId`, stable `recordIds`, original `submittedAt`,
+`reviewStatus`, `reviewDueAt`, `receiptToken`, and `clientRequestId`. New submissions
+start pending. A profile-only response adds `profileOnly: true` and `recordIds: []`.
+Receipt reads return only that
 submission's records, expected `recordCount`, original `submittedAt`, deadline, and
 `processing` if recovery is still preparing rows. Receipt tokens expire after 30 days;
 authenticated patient/staff history retains every record independently of that expiry.
 Guest submission/receipt routes are limited to 10 requests per IP per minute.
+
+Profile-only submissions retain `profileReviewStatus`, `profileReviewHistory`,
+deadline and review metadata directly on Submission. They allocate no Health IDs
+and create no Health rows, measurement values or fictional patient health history.
+Their receipt keeps `recordCount: 0` and `records: []`, with separate safe
+`profileReview`/status/history metadata that excludes the submitted personal fields.
+The admin queue exposes one virtual row with `type: profile`,
+`reviewEntity: submission-profile`, and `_id` equal to the submission ID. It carries
+the submitted profile and the same ownership protections as health review rows.
+Selected, mixed and all-filtered review decisions accept these IDs, preserve the
+confirmation snapshot, and append an atomic audit event exactly once. Queue
+pagination merges both entities in MongoDB; review settings counts include both,
+while clinical dashboard/history counts continue to count actual Health records.
+Profile approval reviews the submitted snapshot and does not overwrite an existing
+official profile. Rejection retains the snapshot and audit. Authenticated profile
+editing and staff verification remain separate workflows.
+
+Profile-only notifications explicitly describe personal information without
+measurement results. A valid admin email capability shows a virtual profile review
+item and the profile allowlist; opening it only reads. Explicit email decisions,
+same-day 23:59 automatic approval, duplicate retries and interrupted-worker recovery
+all use the Submission's own state and never manufacture a Health row. Leaving an
+entire category blank is allowed; entering a category still requires its necessary
+pair or primary measurement (for example, both blood-pressure values).
 
 Guest records begin `pending`; authenticated saves are `approved`. Review decisions
 change only a pending record to `approved` or `rejected`, using an atomic database

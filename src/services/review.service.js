@@ -142,11 +142,36 @@ async function decidePending(filter, { action, source, actorId, actorKey, reason
   return changed;
 }
 
+async function decidePendingProfiles(filter, { action, source, actorId, actorKey, reason = "", at = new Date() }) {
+  const status = action === "approve" ? "approved" : "rejected";
+  const pending = { $and: [{ profileOnly: true }, filter, { profileReviewStatus: "pending" }] };
+  let changed = 0;
+  while (true) {
+    const rows = await Submission.find(pending).sort({ _id: 1 }).limit(100);
+    if (!rows.length) break;
+    for (const row of rows) {
+      const updated = await Submission.findOneAndUpdate({ $and: [reviewDocumentFilter(row), { profileOnly: true, profileReviewStatus: "pending" }] }, {
+        $set: { profileReviewStatus: status, profileReviewedAt: at, profileReviewSource: source, profileReviewReason: reason },
+        $push: { profileReviewHistory: { at, status, from: "pending", to: status, source,
+          actor: actorId ? String(actorId) : undefined, actorId: actorId ? String(actorId) : undefined,
+          ...(actorKey === undefined ? {} : { adminKey: ids.toInternalId(actorKey) }), reason } },
+      }, { new: true });
+      if (updated) changed++;
+    }
+  }
+  // Reviewing a submitted snapshot never overwrites an existing official
+  // profile and never creates a fictional measurement or health history row.
+  return changed;
+}
+
 let approving;
 function approveOverdue(now = new Date()) {
   if (approving) return approving;
-  approving = decidePending({ reviewDueAt: { $lte: now } }, { action: "approve", source: "automatic", at: now,
-    reason: "อนุมัติอัตโนมัติเมื่อพ้นเวลา 23:59 น. ของวันส่งข้อมูล (Asia/Bangkok)" }).finally(() => { approving = null; });
+  const decision = { action: "approve", source: "automatic", at: now,
+    reason: "อนุมัติอัตโนมัติเมื่อพ้นเวลา 23:59 น. ของวันส่งข้อมูล (Asia/Bangkok)" };
+  approving = Promise.all([decidePending({ reviewDueAt: { $lte: now } }, decision),
+    decidePendingProfiles({ reviewDueAt: { $lte: now } }, decision)]).then(values => values.reduce((sum, value) => sum + value, 0))
+    .finally(() => { approving = null; });
   return approving;
 }
 
@@ -182,6 +207,7 @@ async function sendOutbox(now = new Date()) {
       await email.sendReviewNotification({ recipient: job.recipient,
         patientName: [submission.profile.firstName, submission.profile.lastName].filter(Boolean).join(" "),
         recordCount: submission.records.length,
+        profileOnly: submission.profileOnly === true,
         deadlineLabel: new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short" }).format(submission.reviewDueAt),
         approveUrl: link("approve"), rejectUrl: link("reject") });
       await Outbox.updateOne(owned, { $set: { status: "sent", sentAt: new Date(), lastError: "" }, $unset: releaseLease });
@@ -217,4 +243,4 @@ function startReviewWorker() {
   tick(); const timer = setInterval(tick, 60000); timer.unref(); return timer;
 }
 
-module.exports = { materializeSubmission, prepareNotifications, decidePending, approveOverdue, runReviewWorker, startReviewWorker, sendOutbox };
+module.exports = { materializeSubmission, prepareNotifications, decidePending, decidePendingProfiles, approveOverdue, runReviewWorker, startReviewWorker, sendOutbox };

@@ -137,11 +137,11 @@ exports.sendOTPEmail = async (email, otp) => {
   }
 };
 
-exports.sendReviewNotification = async ({ recipient, patientName, recordCount, deadlineLabel, approveUrl, rejectUrl }) => {
+exports.sendReviewNotification = async ({ recipient, patientName, recordCount, profileOnly = false, deadlineLabel, approveUrl, rejectUrl }) => {
   return getTransporter().sendMail({
     from: `"Save Stroke" <${process.env.EMAIL_USER}>`, to: recipient,
-    subject: "Save Stroke: มีบันทึกสุขภาพใหม่รอตรวจสอบ",
-    text: `มีบันทึกสุขภาพใหม่ ${recordCount} รายการ จาก ${patientName || "ผู้ส่งข้อมูล"}\nกำหนดตรวจสอบ: ${deadlineLabel} (Asia/Bangkok)\nหากยังไม่ตรวจสอบ ระบบอนุมัติอัตโนมัติตามกำหนด\n\nตรวจสอบและยืนยันอนุมัติ: ${approveUrl}\nตรวจสอบและยืนยันยกเลิก: ${rejectUrl}\n\nการเปิดลิงก์จะยังไม่เปลี่ยนสถานะ ต้องกดยืนยันในหน้าที่เปิด ลิงก์นี้มีสิทธิ์เฉพาะชุดข้อมูลนี้ กรุณาอย่าส่งต่อ`
+    subject: profileOnly ? "Save Stroke: มีข้อมูลส่วนตัวใหม่รอตรวจสอบ" : "Save Stroke: มีบันทึกสุขภาพใหม่รอตรวจสอบ",
+    text: `${profileOnly ? "มีข้อมูลส่วนตัวใหม่โดยไม่ได้ระบุผลตรวจสุขภาพ" : `มีบันทึกสุขภาพใหม่ ${recordCount} รายการ`} จาก ${patientName || "ผู้ส่งข้อมูล"}\nกำหนดตรวจสอบ: ${deadlineLabel} (Asia/Bangkok)\nหากยังไม่ตรวจสอบ ระบบอนุมัติอัตโนมัติตามกำหนด\n\nตรวจสอบและยืนยันอนุมัติ: ${approveUrl}\nตรวจสอบและยืนยันยกเลิก: ${rejectUrl}\n\nการเปิดลิงก์จะยังไม่เปลี่ยนสถานะ ต้องกดยืนยันในหน้าที่เปิด ลิงก์นี้มีสิทธิ์เฉพาะชุดข้อมูลนี้ กรุณาอย่าส่งต่อ`
   });
 };
 

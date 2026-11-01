@@ -6,6 +6,14 @@ const SubmissionSchema = new mongoose.Schema({
   citizenId: { type: String, required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   profile: { type: mongoose.Schema.Types.Mixed, required: true },
+  profileOnly: { type: Boolean, default: false },
+  profileReviewStatus: { type: String, enum: ["pending", "approved", "rejected"] },
+  profileMaterializedAt: Date,
+  profileReviewedAt: Date,
+  profileReviewSource: { type: String, enum: ["admin", "email", "automatic"] },
+  profileReviewReason: String,
+  profileReviewHistory: [{ at: Date, status: String, from: String, to: String, source: String, actor: String, actorId: String,
+    adminKey: { type: mongoose.Schema.Types.BigInt, set: keySetter }, reason: String, _id: false }],
   legalAgreement: LegalAgreementSchema,
   records: [{ _id: mongoose.Schema.Types.ObjectId, internalId: { type: mongoose.Schema.Types.BigInt, set: keySetter },
     type: { type: String }, value: mongoose.Schema.Types.Mixed,
@@ -20,6 +28,7 @@ const SubmissionSchema = new mongoose.Schema({
   materialized: { type: Boolean, default: false, index: true },
   notificationsPrepared: { type: Boolean, default: false, index: true }
 });
+SubmissionSchema.index({ profileOnly: 1, profileReviewStatus: 1, reviewDueAt: 1 });
 SubmissionSchema.plugin(internalIdsPlugin, { namespace: "Submission", relations: {
   userKey: { model: "User", legacyField: "userId", virtual: "userByKey" }
 } });

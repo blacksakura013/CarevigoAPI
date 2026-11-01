@@ -122,6 +122,10 @@ function storeFor(t) {
   t.mock.method(Submission, "findOne", filter => doc(state.submissions.find(row => matches(row, filter)) || null));
   t.mock.method(Submission, "findById", async submissionId => state.submissions.find(row => scalar(row._id) === String(submissionId)) || null);
   t.mock.method(Submission, "find", filter => query(state.submissions.filter(row => matches(row, filter))));
+  t.mock.method(Submission, "countDocuments", async filter => state.submissions.filter(row => matches(row, filter)).length);
+  t.mock.method(Submission, "findOneAndUpdate", async (filter, update) => {
+    const row = state.submissions.find(item => matches(item, filter)); return row ? apply(row, update) : null;
+  });
   t.mock.method(Submission, "updateOne", async (filter, update) => { const row = state.submissions.find(item => matches(item, filter)); if (row) apply(row, update, filter); return { matchedCount: row ? 1 : 0, modifiedCount: row ? 1 : 0 }; });
   t.mock.method(Admin, "find", async filter => state.admins.filter(row => matches(row, filter)));
   t.mock.method(Admin, "findOne", async filter => state.admins.find(row => matches(row, filter)) || null);
