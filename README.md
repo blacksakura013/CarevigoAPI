@@ -303,6 +303,15 @@ submission's records, expected `recordCount`, original `submittedAt`, deadline, 
 authenticated patient/staff history retains every record independently of that expiry.
 Guest submission/receipt routes are limited to 10 requests per IP per minute.
 
+Both the 202 acknowledgement and scoped receipt include `thaiCvRisk`, assessed
+only from that Submission's profile, blood pressure and total cholesterol at its
+original `submittedAt`. It is available while review is pending and does not read
+an existing patient's profile/history or save additional clinical results. Retries
+retain the same assessment date. Missing inputs (including `records: []`) return
+`incomplete` with a null score; age/disease exclusions return `ineligible`. The
+response allowlists derived assessment fields and exposes only the submitted
+profile marker and measurement timestamps in `inputs`, without personal fields.
+
 Profile-only submissions retain `profileReviewStatus`, `profileReviewHistory`,
 deadline and review metadata directly on Submission. They allocate no Health IDs
 and create no Health rows, measurement values or fictional patient health history.

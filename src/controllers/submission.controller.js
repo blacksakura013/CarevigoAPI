@@ -11,12 +11,14 @@ const { materializeSubmission, prepareNotifications, approveOverdue } = require(
 const response = require("../utils/response");
 const { validateAgreements, agreementProof, sendAgreementError } = require("../utils/legal");
 const { profileReviewRow } = require("../utils/profileReview");
+const { submissionAssessment } = require("../utils/submissionAssessment");
 
 function receiptToken(submission) { return tokenFor("submission-receipt", submission._id, submission.clientRequestId); }
 function submittedResponse(res, submission) {
   return response.success({ res, statusCode: 202, message: "รับข้อมูลแล้ว รอเจ้าหน้าที่ตรวจสอบ", data: {
     submissionId: submission._id, recordIds: submission.records.map(record => record._id), reviewStatus: submission.profileOnly ? submission.profileReviewStatus : "pending",
     submittedAt: submission.submittedAt, ...(submission.profileOnly ? { profileOnly: true } : {}),
+    thaiCvRisk: submissionAssessment(submission),
     reviewDueAt: submission.reviewDueAt, receiptToken: receiptToken(submission), clientRequestId: submission.clientRequestId
   } });
 }
@@ -97,6 +99,7 @@ exports.receipt = async (req, res) => {
     const records = await Health.find(submissionRecordsFilter(submission)).sort({ createdAt: 1, _id: 1 });
     return response.success({ res, data: { submissionId: submission._id, reviewDueAt: submission.reviewDueAt,
       submittedAt: submission.submittedAt, recordCount: submission.records.length,
+      thaiCvRisk: submissionAssessment(submission),
       processing: !submission.materialized, records: records.map(safeReviewRecord),
       ...(submission.profileOnly ? { profileOnly: true, profileReview: profileReviewRow(submission),
         profileReviewStatus: submission.profileReviewStatus, profileReviewHistory: submission.profileReviewHistory || [] } : {}) } });
